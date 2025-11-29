@@ -1,0 +1,233 @@
+.lyrics-editor {
+  background: white;
+  border-radius: 20px;
+  padding: 30px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+  margin-top: 30px;
+}
+
+.editor-header h2 {
+  margin: 0 0 10px 0;
+  color: #333;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.instruction {
+  margin: 0 0 20px 0;
+  color: #666;
+  font-size: 14px;
+}
+
+.measures-container {
+  margin-bottom: 30px;
+}
+
+.measure {
+  position: relative;
+  margin-bottom: 20px;
+  padding: 15px 0;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.measure:last-child {
+  border-bottom: none;
+}
+
+.measure-number {
+  position: absolute;
+  left: -40px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 30px;
+  height: 30px;
+  background: #667eea;
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.measure-grid {
+  position: relative;
+  height: 80px;
+  display: flex;
+  background: linear-gradient(to right, #f5f5f5 0%, #f5f5f5 100%);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.beat-cell {
+  flex: 1;
+  position: relative;
+  border-right: 1px solid #e0e0e0;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.beat-cell:hover {
+  background: rgba(102, 126, 234, 0.1);
+}
+
+.beat-cell.strong-beat {
+  border-right: 2px solid #bbb;
+}
+
+.beat-marker {
+  position: absolute;
+  bottom: 5px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 4px;
+  height: 4px;
+  background: #ccc;
+  border-radius: 50%;
+}
+
+.lyric-block {
+  position: absolute;
+  top: 10px;
+  height: 60px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  font-weight: 500;
+  user-select: none;
+}
+
+.lyric-block:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.lyric-block.selected {
+  outline: 3px solid #ffd700;
+  outline-offset: 2px;
+}
+
+.lyric-block.active {
+  animation: highlight 0.5s ease infinite alternate;
+  transform: scale(1.05);
+}
+
+@keyframes highlight {
+  from {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  }
+  to {
+    box-shadow: 0 4px 20px rgba(255, 215, 0, 0.6);
+  }
+}
+
+.lyric-text {
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  width: 100%;
+  line-height: 1.2;
+}
+
+.lyric-input {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: white;
+  text-align: center;
+  outline: none;
+  font-weight: 500;
+  font-family: inherit;
+}
+
+.lyric-input::placeholder {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.block-controls {
+  background: #f8f9fa;
+  border-radius: 12px;
+  padding: 20px;
+  margin-top: 20px;
+}
+
+.block-controls h3 {
+  margin: 0 0 15px 0;
+  font-size: 18px;
+  color: #333;
+}
+
+.control-group {
+  margin-bottom: 15px;
+}
+
+.control-group:last-child {
+  margin-bottom: 0;
+}
+
+.control-group label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #555;
+}
+
+.duration-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.duration-buttons button {
+  flex: 1;
+  padding: 10px 15px;
+  border: 2px solid #667eea;
+  background: white;
+  color: #667eea;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.duration-buttons button:hover {
+  background: #f0f2ff;
+}
+
+.duration-buttons button.active {
+  background: #667eea;
+  color: white;
+}
+
+.delete-button {
+  padding: 10px 20px;
+  border: none;
+  background: #ff4757;
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.delete-button:hover {
+  background: #ff3838;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(255, 71, 87, 0.3);
+}
+
+.delete-button:active {
+  transform: translateY(0);
+}
