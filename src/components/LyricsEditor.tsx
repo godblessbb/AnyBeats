@@ -6,6 +6,7 @@ import { type LyricData } from './AILyricsGenerator';
 export interface CellData {
   text: string;  // 格子中的文字
   isEditing: boolean;  // 是否正在编辑
+  isAccented: boolean;  // 是否标记为重音
 }
 
 interface LyricsEditorProps {
@@ -30,6 +31,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
       Array.from({ length: cellsPerMeasure }, () => ({
         text: '',
         isEditing: false,
+        isAccented: false,
       }))
     );
     setMeasures(initialMeasures);
@@ -71,6 +73,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
       Array.from({ length: cellsPerMeasure }, () => ({
         text: '',
         isEditing: false,
+        isAccented: false,
       }))
     );
 
@@ -97,6 +100,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
         newMeasures[measureIndex] = Array.from({ length: cellsPerMeasure }, () => ({
           text: '',
           isEditing: false,
+          isAccented: false,
         }));
       }
       newMeasures[measureIndex] = [...newMeasures[measureIndex]];
@@ -104,6 +108,21 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
         ...newMeasures[measureIndex][cellIndex],
         text,
       };
+      return newMeasures;
+    });
+  };
+
+  // 切换重音标记
+  const toggleAccent = (measureIndex: number, cellIndex: number) => {
+    setMeasures((prev) => {
+      const newMeasures = [...prev];
+      if (newMeasures[measureIndex] && newMeasures[measureIndex][cellIndex]) {
+        newMeasures[measureIndex] = [...newMeasures[measureIndex]];
+        newMeasures[measureIndex][cellIndex] = {
+          ...newMeasures[measureIndex][cellIndex],
+          isAccented: !newMeasures[measureIndex][cellIndex].isAccented,
+        };
+      }
       return newMeasures;
     });
   };
@@ -128,6 +147,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
       Array.from({ length: cellsPerMeasure }, () => ({
         text: '',
         isEditing: false,
+        isAccented: false,
       })),
     ]);
     setMeasuresCount((prev) => prev + 1);
@@ -153,23 +173,24 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
         measure.map(() => ({
           text: '',
           isEditing: false,
+          isAccented: false,
         }))
       )
     );
   };
 
-  // 根据字数计算字号
+  // 根据字数计算字号（调整为更小的字号以支持横向显示）
   const calculateFontSize = (text: string): number => {
     const charCount = text.length;
 
-    if (charCount === 0) return 20;
-    if (charCount === 1) return 28;  // 1字 = 1/4拍 -> 大字号
-    if (charCount === 2) return 24;  // 2字 = 1/8拍 -> 中等字号
-    if (charCount <= 4) return 20;   // 3-4字 = 1/16拍 -> 小字号
-    if (charCount <= 8) return 16;   // 5-8字 = 1/32拍 -> 最小字号
+    if (charCount === 0) return 14;
+    if (charCount === 1) return 18;  // 1字 = 1/4拍 -> 大字号
+    if (charCount === 2) return 16;  // 2字 = 1/8拍 -> 中等字号
+    if (charCount <= 4) return 14;   // 3-4字 = 1/16拍 -> 小字号
+    if (charCount <= 8) return 12;   // 5-8字 = 1/32拍 -> 最小字号
 
     // 超过8个字，继续缩小
-    return Math.max(12, 16 - (charCount - 8));
+    return Math.max(10, 12 - (charCount - 8) * 0.5);
   };
 
   // 渲染小节
@@ -177,6 +198,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
     const measureData = measures[measureIndex] || Array.from({ length: cellsPerMeasure }, () => ({
       text: '',
       isEditing: false,
+      isAccented: false,
     }));
 
     return (
@@ -191,10 +213,15 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
             return (
               <div
                 key={cellIndex}
-                className={`beat-cell ${isStrongBeat ? 'strong-beat' : ''} ${isCurrentBeat ? 'playing' : ''} ${cell.text ? 'has-text' : ''}`}
+                className={`beat-cell ${isStrongBeat ? 'strong-beat' : ''} ${isCurrentBeat ? 'playing' : ''} ${cell.text ? 'has-text' : ''} ${cell.isAccented ? 'accented' : ''}`}
                 onClick={() => {
                   if (!cell.isEditing) {
                     setCellEditing(measureIndex, cellIndex, true);
+                  }
+                }}
+                onDoubleClick={() => {
+                  if (cell.text && !cell.isEditing) {
+                    toggleAccent(measureIndex, cellIndex);
                   }
                 }}
               >
@@ -251,16 +278,23 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
       </div>
 
       <div className="lyrics-grid">
-        {Array.from({ length: measuresCount }).map((_, index) => renderMeasure(index))}
+        {/* 每行显示2个小节 */}
+        {Array.from({ length: Math.ceil(measuresCount / 2) }).map((_, rowIndex) => (
+          <div key={rowIndex} className="measure-row">
+            {renderMeasure(rowIndex * 2)}
+            {rowIndex * 2 + 1 < measuresCount && renderMeasure(rowIndex * 2 + 1)}
+          </div>
+        ))}
       </div>
 
       <div className="editor-tips">
         <p><strong>使用说明：</strong></p>
         <ul>
-          <li>点击任意格子输入歌词（每格 = 1/4 拍）</li>
-          <li>1个字 = 大字号（1/4拍），2个字 = 中等（1/8拍），3-4个字 = 小字号（1/16拍），5-8个字 = 最小（1/32拍）</li>
+          <li>单击格子输入歌词（每格 = 1/4 拍）</li>
+          <li>双击格子标记/取消重音（灰色背景）</li>
+          <li>字号自动调整：1字=18px，2字=16px，3-4字=14px，5-8字=12px</li>
           <li>输入完成后按 Enter 或点击其他地方完成编辑</li>
-          <li>播放时当前格子会高亮显示</li>
+          <li>播放时当前格子会高亮显示（绿色）</li>
         </ul>
       </div>
     </div>
