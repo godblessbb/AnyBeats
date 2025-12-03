@@ -29,6 +29,7 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   const generateLyrics = async () => {
     if (!prompt.trim()) {
@@ -162,9 +163,15 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
 
   return (
     <div className="ai-lyrics-generator">
-      <h3>AI 歌词生成</h3>
+      <div className="generator-header">
+        <h3>AI 歌词生成</h3>
+        <button onClick={() => setIsCollapsed(!isCollapsed)} className="collapse-button">
+          {isCollapsed ? '展开 ▼' : '收起 ▲'}
+        </button>
+      </div>
 
-      <div className="generator-content">
+      {!isCollapsed && (
+        <div className="generator-content">
         {showApiKeyInput && (
           <div className="api-key-section">
             <label>OpenAI API Key:</label>
@@ -228,6 +235,7 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
           </ul>
         </div>
       </div>
+      )}
     </div>
   );
 }
