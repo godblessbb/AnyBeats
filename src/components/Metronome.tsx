@@ -3,11 +3,19 @@ import './Metronome.css';
 
 interface MetronomeProps {
   onBeatChange?: (currentBeat: number) => void;
+  onBpmChange?: (bpm: number) => void;
 }
 
-export default function Metronome({ onBeatChange }: MetronomeProps) {
+export default function Metronome({ onBeatChange, onBpmChange }: MetronomeProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [bpm, setBpm] = useState(90);
+
+  // 通知父组件 BPM 变化
+  useEffect(() => {
+    if (onBpmChange) {
+      onBpmChange(bpm);
+    }
+  }, [bpm, onBpmChange]);
   const [currentBeat, setCurrentBeat] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(true);
 

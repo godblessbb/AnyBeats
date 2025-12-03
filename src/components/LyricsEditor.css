@@ -147,9 +147,9 @@
 }
 
 .beat-cell.playing {
-  background: linear-gradient(135deg, #ff6b6b 0%, #ffd700 100%);
+  background: linear-gradient(135deg, #a8e6cf 0%, #dcedc8 100%);
   animation: beat-pulse 0.3s ease;
-  box-shadow: inset 0 0 15px rgba(255, 107, 107, 0.5);
+  box-shadow: inset 0 0 15px rgba(168, 230, 207, 0.6);
 }
 
 @keyframes beat-pulse {

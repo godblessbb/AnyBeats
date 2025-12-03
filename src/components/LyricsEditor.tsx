@@ -1,45 +1,83 @@
 import { useState, useEffect } from 'react';
 import './LyricsEditor.css';
+import { type LyricData } from './AILyricsGenerator';
 
 export interface LyricBlock {
   id: string;
   text: string;
-  startBeat: number; // 起始节拍位置（以1/4拍为单位）
-  duration: number; // 持续时长（以1/4拍为单位）1拍=4, 1/2拍=2, 1/4拍=1
+  startBeat: number; // 起始节拍位置（以1/16拍为单位）
+  duration: number; // 持续时长（以1/16拍为单位）1/16拍=1, 1/8拍=2, 1/4拍=4, 1/2拍=8, 1拍=16
   measureIndex: number; // 所在小节
 }
 
 interface LyricsEditorProps {
   currentBeat: number;
   isPlaying: boolean;
+  generatedLyrics?: LyricData | null;
 }
 
-export default function LyricsEditor({ currentBeat, isPlaying }: LyricsEditorProps) {
+export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }: LyricsEditorProps) {
   const [lyricBlocks, setLyricBlocks] = useState<LyricBlock[]>([]);
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
-  const [playbackPosition, setPlaybackPosition] = useState(0); // 当前播放位置（1/4拍为单位）
+  const [playbackPosition, setPlaybackPosition] = useState(0); // 当前播放位置（以1/16拍为单位）
   const [measuresCount, setMeasuresCount] = useState(4); // 可变的小节数
 
-  const beatsPerMeasure = 16; // 每小节16个1/4拍（4拍）
+  const beatsPerMeasure = 64; // 每小节64个1/16拍（4拍）
+  const displayBeatsPerMeasure = 16; // 显示16个格子（每格代表1/4拍）
 
-  // 更新播放位置（每1/4拍更新一次）
+  // 监听生成的歌词并自动导入
+  useEffect(() => {
+    if (generatedLyrics) {
+      importLyrics(generatedLyrics);
+    }
+  }, [generatedLyrics]);
+
+  // 更新播放位置（每1/4拍更新一次，即每4个1/16拍）
   useEffect(() => {
     if (isPlaying) {
       setPlaybackPosition((prev) => {
         const maxPosition = measuresCount * beatsPerMeasure;
-        return (prev + 1) % maxPosition;
+        // 每次增加4（1个1/4拍 = 4个1/16拍）
+        return (prev + 4) % maxPosition;
       });
     }
   }, [currentBeat, isPlaying, measuresCount]);
 
+  // 导入AI生成的歌词
+  const importLyrics = (data: LyricData) => {
+    const newBlocks: LyricBlock[] = [];
+    let idCounter = Date.now();
+
+    data.measures.forEach((measure) => {
+      measure.lyrics.forEach((lyric) => {
+        newBlocks.push({
+          id: (idCounter++).toString(),
+          text: lyric.text,
+          startBeat: measure.measureIndex * beatsPerMeasure + lyric.startBeat,
+          duration: lyric.duration,
+          measureIndex: measure.measureIndex,
+        });
+      });
+    });
+
+    // 更新小节数
+    const maxMeasureIndex = Math.max(...data.measures.map(m => m.measureIndex));
+    setMeasuresCount(Math.max(measuresCount, maxMeasureIndex + 1));
+
+    setLyricBlocks(newBlocks);
+  };
+
   // 添加新的歌词块
   const addLyricBlock = (measureIndex: number, beatPosition: number) => {
+    // beatPosition 是显示格子的索引 (0-15)，每个格子 = 1/4拍 = 4个1/16拍
+    const startBeat = measureIndex * beatsPerMeasure + beatPosition * 4;
+
     const newBlock: LyricBlock = {
       id: Date.now().toString(),
       text: '',
-      startBeat: measureIndex * beatsPerMeasure + beatPosition,
-      duration: 4, // 默认1拍
+      startBeat,
+      duration: 4, // 默认1/4拍 = 4个1/16拍
       measureIndex,
     };
     setLyricBlocks([...lyricBlocks, newBlock]);
@@ -89,19 +127,23 @@ export default function LyricsEditor({ currentBeat, isPlaying }: LyricsEditorPro
 
   // 计算文字大小
   const calculateFontSize = (block: LyricBlock): number => {
-    // 基础大小根据时长
+    // 基础大小根据时长（duration 以1/16拍为单位）
     let baseSize: number;
-    if (block.duration >= 4) {
+    if (block.duration >= 16) {
       baseSize = 24; // 1拍或更长
+    } else if (block.duration >= 8) {
+      baseSize = 22; // 1/2拍
+    } else if (block.duration >= 4) {
+      baseSize = 20; // 1/4拍
     } else if (block.duration >= 2) {
-      baseSize = 20; // 1/2拍
+      baseSize = 18; // 1/8拍
     } else {
-      baseSize = 16; // 1/4拍
+      baseSize = 16; // 1/16拍
     }
 
-    // 根据字符数调整
+    // 根据字符数调整（每4个1/16拍建议1个字）
     const charCount = block.text.length;
-    const maxChars = block.duration; // 每个1/4拍建议1个字
+    const maxChars = Math.max(1, Math.floor(block.duration / 4));
 
     if (charCount > maxChars) {
       // 内容过多，缩小字体
@@ -121,16 +163,21 @@ export default function LyricsEditor({ currentBeat, isPlaying }: LyricsEditorPro
       <div key={measureIndex} className="measure">
         <div className="measure-number">{measureIndex + 1}</div>
         <div className="measure-grid">
-          {/* 节拍网格 */}
-          {Array.from({ length: beatsPerMeasure }).map((_, beatIndex) => {
-            const absoluteBeatPosition = measureStartBeat + beatIndex;
-            const isCurrentBeat = isPlaying && playbackPosition === absoluteBeatPosition;
+          {/* 节拍网格（显示16个格子，每格=1/4拍=4个1/16拍） */}
+          {Array.from({ length: displayBeatsPerMeasure }).map((_, displayBeatIndex) => {
+            // 每个显示格子代表4个1/16拍
+            const beatStart = displayBeatIndex * 4;
+            const absoluteBeatPosition = measureStartBeat + beatStart;
+            // 检查当前播放位置是否在这个格子范围内（4个1/16拍）
+            const isCurrentBeat = isPlaying &&
+              playbackPosition >= absoluteBeatPosition &&
+              playbackPosition < absoluteBeatPosition + 4;
 
             return (
               <div
-                key={beatIndex}
-                className={`beat-cell ${beatIndex % 4 === 0 ? 'strong-beat' : ''} ${isCurrentBeat ? 'playing' : ''}`}
-                onClick={() => addLyricBlock(measureIndex, beatIndex)}
+                key={displayBeatIndex}
+                className={`beat-cell ${displayBeatIndex % 4 === 0 ? 'strong-beat' : ''} ${isCurrentBeat ? 'playing' : ''}`}
+                onClick={() => addLyricBlock(measureIndex, displayBeatIndex)}
               >
                 <div className="beat-marker" />
               </div>
@@ -232,25 +279,31 @@ export default function LyricsEditor({ currentBeat, isPlaying }: LyricsEditorPro
                 className={selectedBlock.duration === 1 ? 'active' : ''}
                 onClick={() => updateBlockDuration(selectedBlock.id, 1)}
               >
-                1/4拍
+                1/16拍
               </button>
               <button
                 className={selectedBlock.duration === 2 ? 'active' : ''}
                 onClick={() => updateBlockDuration(selectedBlock.id, 2)}
               >
-                1/2拍
+                1/8拍
               </button>
               <button
                 className={selectedBlock.duration === 4 ? 'active' : ''}
                 onClick={() => updateBlockDuration(selectedBlock.id, 4)}
               >
-                1拍
+                1/4拍
               </button>
               <button
                 className={selectedBlock.duration === 8 ? 'active' : ''}
                 onClick={() => updateBlockDuration(selectedBlock.id, 8)}
               >
-                2拍
+                1/2拍
+              </button>
+              <button
+                className={selectedBlock.duration === 16 ? 'active' : ''}
+                onClick={() => updateBlockDuration(selectedBlock.id, 16)}
+              >
+                1拍
               </button>
             </div>
           </div>
