@@ -116,38 +116,26 @@ export default function LyricsEditor({ currentBeat, isPlaying }: LyricsEditorPro
   const renderMeasure = (measureIndex: number) => {
     const measureBlocks = lyricBlocks.filter((block) => block.measureIndex === measureIndex);
     const measureStartBeat = measureIndex * beatsPerMeasure;
-    const measureEndBeat = measureStartBeat + beatsPerMeasure;
-
-    // 计算当前播放位置是否在这个小节内
-    const isInThisMeasure = isPlaying &&
-      playbackPosition >= measureStartBeat &&
-      playbackPosition < measureEndBeat;
-    const localPlaybackPosition = playbackPosition - measureStartBeat;
 
     return (
       <div key={measureIndex} className="measure">
         <div className="measure-number">{measureIndex + 1}</div>
         <div className="measure-grid">
           {/* 节拍网格 */}
-          {Array.from({ length: beatsPerMeasure }).map((_, beatIndex) => (
-            <div
-              key={beatIndex}
-              className={`beat-cell ${beatIndex % 4 === 0 ? 'strong-beat' : ''}`}
-              onClick={() => addLyricBlock(measureIndex, beatIndex)}
-            >
-              <div className="beat-marker" />
-            </div>
-          ))}
+          {Array.from({ length: beatsPerMeasure }).map((_, beatIndex) => {
+            const absoluteBeatPosition = measureStartBeat + beatIndex;
+            const isCurrentBeat = isPlaying && playbackPosition === absoluteBeatPosition;
 
-          {/* 播放位置指示器 */}
-          {isInThisMeasure && (
-            <div
-              className="playback-indicator"
-              style={{
-                left: `${(localPlaybackPosition / beatsPerMeasure) * 100}%`,
-              }}
-            />
-          )}
+            return (
+              <div
+                key={beatIndex}
+                className={`beat-cell ${beatIndex % 4 === 0 ? 'strong-beat' : ''} ${isCurrentBeat ? 'playing' : ''}`}
+                onClick={() => addLyricBlock(measureIndex, beatIndex)}
+              >
+                <div className="beat-marker" />
+              </div>
+            );
+          })}
 
           {/* 歌词块 */}
           {measureBlocks.map((block) => {
