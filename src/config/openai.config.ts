@@ -27,9 +27,9 @@ export interface LyricJsonTemplate {
  * 默认 OpenAI 配置
  */
 export const defaultOpenAIConfig: Omit<OpenAIConfig, 'apiKey'> = {
-  model: 'gpt-4',
-  temperature: 0.8,
-  maxTokens: 2000,
+  model: 'gpt-5-nano',
+  temperature: 1,
+  max_completion_tokens: 2000,
 };
 
 /**
