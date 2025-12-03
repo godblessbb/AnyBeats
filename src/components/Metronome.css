@@ -245,18 +245,46 @@
   gap: 15px;
 }
 
-.play-with-beat-control {
+.backing-buttons {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  font-size: 14px;
+  gap: 10px;
 }
 
-.play-with-beat-control input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
+.backing-play-button,
+.backing-reset-button {
+  flex: 1;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
+  transition: all 0.2s;
+}
+
+.backing-play-button {
+  background: white;
+  color: #667eea;
+}
+
+.backing-play-button:hover {
+  background: #f0f2ff;
+  transform: translateY(-1px);
+}
+
+.backing-play-button.playing {
+  background: #667eea;
+  color: white;
+}
+
+.backing-reset-button {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+}
+
+.backing-reset-button:hover {
+  background: rgba(255, 255, 255, 0.3);
+  transform: translateY(-1px);
 }
 
 .volume-control {

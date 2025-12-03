@@ -19,14 +19,17 @@ export default function LyricsEditor({ currentBeat, isPlaying }: LyricsEditorPro
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
   const [playbackPosition, setPlaybackPosition] = useState(0); // 当前播放位置（1/4拍为单位）
+  const [measuresCount, setMeasuresCount] = useState(4); // 可变的小节数
 
   const beatsPerMeasure = 16; // 每小节16个1/4拍（4拍）
-  const measuresCount = 4; // 显示4个小节
 
-  // 更新播放位置
+  // 更新播放位置（每1/4拍更新一次）
   useEffect(() => {
     if (isPlaying) {
-      setPlaybackPosition((prev) => (prev + 1) % (measuresCount * beatsPerMeasure));
+      setPlaybackPosition((prev) => {
+        const maxPosition = measuresCount * beatsPerMeasure;
+        return (prev + 1) % maxPosition;
+      });
     }
   }, [currentBeat, isPlaying, measuresCount]);
 
@@ -65,6 +68,25 @@ export default function LyricsEditor({ currentBeat, isPlaying }: LyricsEditorPro
     if (editingBlockId === id) setEditingBlockId(null);
   };
 
+  // 添加小节
+  const addMeasure = () => {
+    setMeasuresCount(prev => prev + 1);
+  };
+
+  // 删除最后一个小节
+  const removeMeasure = () => {
+    if (measuresCount <= 1) return; // 至少保留1个小节
+
+    // 删除该小节中的所有歌词块
+    setLyricBlocks(lyricBlocks.filter(block => block.measureIndex < measuresCount - 1));
+    setMeasuresCount(prev => prev - 1);
+  };
+
+  // 重置播放位置
+  const resetPlayback = () => {
+    setPlaybackPosition(0);
+  };
+
   // 计算文字大小
   const calculateFontSize = (block: LyricBlock): number => {
     // 基础大小根据时长
@@ -93,6 +115,14 @@ export default function LyricsEditor({ currentBeat, isPlaying }: LyricsEditorPro
   // 渲染小节
   const renderMeasure = (measureIndex: number) => {
     const measureBlocks = lyricBlocks.filter((block) => block.measureIndex === measureIndex);
+    const measureStartBeat = measureIndex * beatsPerMeasure;
+    const measureEndBeat = measureStartBeat + beatsPerMeasure;
+
+    // 计算当前播放位置是否在这个小节内
+    const isInThisMeasure = isPlaying &&
+      playbackPosition >= measureStartBeat &&
+      playbackPosition < measureEndBeat;
+    const localPlaybackPosition = playbackPosition - measureStartBeat;
 
     return (
       <div key={measureIndex} className="measure">
@@ -108,6 +138,16 @@ export default function LyricsEditor({ currentBeat, isPlaying }: LyricsEditorPro
               <div className="beat-marker" />
             </div>
           ))}
+
+          {/* 播放位置指示器 */}
+          {isInThisMeasure && (
+            <div
+              className="playback-indicator"
+              style={{
+                left: `${(localPlaybackPosition / beatsPerMeasure) * 100}%`,
+              }}
+            />
+          )}
 
           {/* 歌词块 */}
           {measureBlocks.map((block) => {
@@ -169,6 +209,25 @@ export default function LyricsEditor({ currentBeat, isPlaying }: LyricsEditorPro
       <div className="editor-header">
         <h2>歌词创作区</h2>
         <p className="instruction">点击任意位置添加歌词，双击编辑</p>
+      </div>
+
+      <div className="editor-controls">
+        <div className="measure-controls">
+          <button onClick={addMeasure} className="add-measure-button">
+            ➕ 添加小节
+          </button>
+          <button
+            onClick={removeMeasure}
+            className="remove-measure-button"
+            disabled={measuresCount <= 1}
+          >
+            ➖ 删除小节
+          </button>
+          <span className="measure-count">共 {measuresCount} 小节</span>
+        </div>
+        <button onClick={resetPlayback} className="reset-playback-button">
+          ⏮ 重置播放
+        </button>
       </div>
 
       <div className="measures-container">

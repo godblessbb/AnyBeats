@@ -14,7 +14,7 @@ export default function Metronome({ onBeatChange }: MetronomeProps) {
   // 伴奏相关状态
   const [backingTrack, setBackingTrack] = useState<string | null>(null);
   const [backingTrackName, setBackingTrackName] = useState<string>('');
-  const [playWithBeat, setPlayWithBeat] = useState(true);
+  const [isBackingPlaying, setIsBackingPlaying] = useState(false); // 伴奏独立播放状态
   const [backingVolume, setBackingVolume] = useState(0.7);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
@@ -140,23 +140,12 @@ export default function Metronome({ onBeatChange }: MetronomeProps) {
           return nextBeat;
         });
       }, beatInterval);
-
-      // 播放伴奏
-      if (backingAudioRef.current && playWithBeat && backingTrack) {
-        backingAudioRef.current.play().catch(err => console.error('播放伴奏失败:', err));
-      }
     } else {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
       setCurrentBeat(0);
-
-      // 暂停伴奏
-      if (backingAudioRef.current) {
-        backingAudioRef.current.pause();
-        backingAudioRef.current.currentTime = 0;
-      }
     }
 
     return () => {
@@ -164,10 +153,31 @@ export default function Metronome({ onBeatChange }: MetronomeProps) {
         clearInterval(intervalRef.current);
       }
     };
-  }, [isPlaying, bpm, onBeatChange, soundEnabled, backingTrack, playWithBeat]);
+  }, [isPlaying, bpm, onBeatChange, soundEnabled]);
 
   const togglePlay = () => {
     setIsPlaying(!isPlaying);
+  };
+
+  // 伴奏播放控制
+  const toggleBackingPlay = () => {
+    if (!backingAudioRef.current) return;
+
+    if (isBackingPlaying) {
+      backingAudioRef.current.pause();
+    } else {
+      backingAudioRef.current.play().catch(err => console.error('播放伴奏失败:', err));
+    }
+    setIsBackingPlaying(!isBackingPlaying);
+  };
+
+  // 重置伴奏
+  const resetBacking = () => {
+    if (backingAudioRef.current) {
+      backingAudioRef.current.pause();
+      backingAudioRef.current.currentTime = 0;
+      setIsBackingPlaying(false);
+    }
   };
 
   const removeBackingTrack = () => {
@@ -253,14 +263,17 @@ export default function Metronome({ onBeatChange }: MetronomeProps) {
             </div>
 
             <div className="backing-controls">
-              <label className="play-with-beat-control">
-                <input
-                  type="checkbox"
-                  checked={playWithBeat}
-                  onChange={(e) => setPlayWithBeat(e.target.checked)}
-                />
-                跟随节拍器播放
-              </label>
+              <div className="backing-buttons">
+                <button
+                  onClick={toggleBackingPlay}
+                  className={`backing-play-button ${isBackingPlaying ? 'playing' : ''}`}
+                >
+                  {isBackingPlaying ? '⏸ 暂停' : '▶ 播放'}
+                </button>
+                <button onClick={resetBacking} className="backing-reset-button">
+                  ⏮ 重置
+                </button>
+              </div>
 
               <div className="volume-control">
                 <label>音量: {Math.round(backingVolume * 100)}%</label>

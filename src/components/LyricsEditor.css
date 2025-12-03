@@ -14,9 +14,79 @@
 }
 
 .instruction {
-  margin: 0 0 20px 0;
+  margin: 0 0 15px 0;
   color: #666;
   font-size: 14px;
+}
+
+.editor-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding: 15px;
+  background: #f8f9fa;
+  border-radius: 10px;
+}
+
+.measure-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.add-measure-button,
+.remove-measure-button,
+.reset-playback-button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.add-measure-button {
+  background: #667eea;
+  color: white;
+}
+
+.add-measure-button:hover {
+  background: #5568d3;
+  transform: translateY(-1px);
+}
+
+.remove-measure-button {
+  background: #ff6b6b;
+  color: white;
+}
+
+.remove-measure-button:hover:not(:disabled) {
+  background: #ff5252;
+  transform: translateY(-1px);
+}
+
+.remove-measure-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.reset-playback-button {
+  background: #764ba2;
+  color: white;
+}
+
+.reset-playback-button:hover {
+  background: #643a8c;
+  transform: translateY(-1px);
+}
+
+.measure-count {
+  font-size: 14px;
+  color: #666;
+  font-weight: 500;
 }
 
 .measures-container {
@@ -85,6 +155,26 @@
   height: 4px;
   background: #ccc;
   border-radius: 50%;
+}
+
+.playback-indicator {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(to bottom, #ff6b6b, #ffd700);
+  box-shadow: 0 0 10px rgba(255, 107, 107, 0.6);
+  z-index: 10;
+  animation: pulse-indicator 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes pulse-indicator {
+  from {
+    box-shadow: 0 0 10px rgba(255, 107, 107, 0.6);
+  }
+  to {
+    box-shadow: 0 0 20px rgba(255, 107, 107, 0.9);
+  }
 }
 
 .lyric-block {
