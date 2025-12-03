@@ -1,5 +1,11 @@
 import { useState } from 'react';
 import './AILyricsGenerator.css';
+import {
+  defaultOpenAIConfig,
+  getSystemPrompt,
+  getStoredApiKey,
+  saveApiKey
+} from '../config/openai.config';
 
 export interface LyricData {
   bpm: number;
@@ -25,7 +31,7 @@ interface AILyricsGeneratorProps {
 
 export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGeneratorProps) {
   const [prompt, setPrompt] = useState('');
-  const [apiKey, setApiKey] = useState('');
+  const [apiKey, setApiKey] = useState(getStoredApiKey());
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
@@ -47,35 +53,7 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
     setError(null);
 
     try {
-      const systemPrompt = `你是一个专业的说唱歌词创作助手。请根据用户的需求生成说唱歌词，并严格按照以下JSON格式输出：
-
-{
-  "bpm": ${currentBpm},
-  "timeSignature": "4/4",
-  "measures": [
-    {
-      "measureIndex": 0,
-      "lyrics": [
-        {
-          "text": "单个字或词",
-          "startBeat": 0,
-          "duration": 4
-        }
-      ]
-    }
-  ]
-}
-
-重要说明：
-1. startBeat 和 duration 都以 1/16拍为单位
-2. 每小节有64个1/16拍（4/4拍 = 4拍 = 64个1/16拍）
-3. 常用时值：1/16拍=1, 1/8拍=2, 1/4拍=4, 1/2拍=8, 1拍=16
-4. 请合理分配每个字的时值，快速说唱可用1/16拍或1/8拍，慢速可用1/4拍或更长
-5. 生成2-4个小节的内容
-6. 确保每个小节的歌词时值总和不超过64
-7. 只返回JSON，不要有其他文字
-
-请现在根据用户需求创作歌词。`;
+      const systemPrompt = getSystemPrompt(currentBpm);
 
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -84,12 +62,13 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
           'Authorization': `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: 'gpt-4',
+          model: defaultOpenAIConfig.model,
           messages: [
             { role: 'system', content: systemPrompt },
             { role: 'user', content: prompt }
           ],
-          temperature: 0.8,
+          temperature: defaultOpenAIConfig.temperature,
+          max_tokens: defaultOpenAIConfig.maxTokens,
         }),
       });
 
@@ -182,7 +161,10 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
               placeholder="sk-..."
               className="api-key-input"
             />
-            <button onClick={() => setShowApiKeyInput(false)} className="close-api-input">
+            <button onClick={() => {
+              saveApiKey(apiKey);
+              setShowApiKeyInput(false);
+            }} className="close-api-input">
               完成
             </button>
           </div>
