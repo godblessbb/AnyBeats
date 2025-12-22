@@ -182,7 +182,7 @@
   background: linear-gradient(135deg, #66bb6a 0%, #aed581 100%) !important;
 }
 
-/* 空拍样式 */
+/* 空拍样式（整个格子都是空拍） */
 .beat-cell.rest-beat {
   background: #fafafa;
   border: 2px dashed #ccc;
@@ -197,6 +197,12 @@
   background: linear-gradient(135deg, #81c784 0%, #c5e1a5 100%) !important;
   border-style: solid;
   border-color: #4caf50;
+}
+
+/* 包含空拍符号的样式（文字+空拍混合） */
+.beat-cell.has-rest {
+  background: #fff;
+  border: 2px solid #e0e0e0;
 }
 
 .beat-marker {

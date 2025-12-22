@@ -132,6 +132,9 @@ export default function Metronome({ onBeatChange, onBpmChange }: MetronomeProps)
 
   // 累计节拍计数（用于歌词高亮）
   const beatCountRef = useRef(0);
+  // 保存回调函数的引用，避免 useEffect 依赖变化
+  const onBeatChangeRef = useRef(onBeatChange);
+  onBeatChangeRef.current = onBeatChange;
 
   // 处理节拍器逻辑
   useEffect(() => {
@@ -139,21 +142,21 @@ export default function Metronome({ onBeatChange, onBpmChange }: MetronomeProps)
       const beatInterval = 60000 / bpm; // 转换为毫秒
 
       intervalRef.current = window.setInterval(() => {
+        // 先更新累计节拍计数
+        beatCountRef.current += 1;
+        const currentBeatCount = beatCountRef.current;
+
         setCurrentBeat((prev) => {
           const nextBeat = (prev + 1) % 4; // 4/4拍显示
           const isStrongBeat = nextBeat === 0;
           playBeat(isStrongBeat);
-
-          // 累计节拍计数
-          beatCountRef.current += 1;
-
-          if (onBeatChange) {
-            // 发送累计节拍计数
-            onBeatChange(beatCountRef.current);
-          }
-
           return nextBeat;
         });
+
+        // 在 setState 外面调用回调，确保同步
+        if (onBeatChangeRef.current) {
+          onBeatChangeRef.current(currentBeatCount);
+        }
       }, beatInterval);
     } else {
       if (intervalRef.current) {
@@ -169,7 +172,7 @@ export default function Metronome({ onBeatChange, onBpmChange }: MetronomeProps)
         clearInterval(intervalRef.current);
       }
     };
-  }, [isPlaying, bpm, onBeatChange, soundEnabled]);
+  }, [isPlaying, bpm, soundEnabled]); // 移除 onBeatChange 依赖，使用 ref 代替
 
   const togglePlay = () => {
     setIsPlaying(!isPlaying);

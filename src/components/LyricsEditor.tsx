@@ -246,9 +246,21 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
     );
   };
 
-  // 检查是否为空拍（空格或纯空白）
-  const isRestBeat = (text: string): boolean => {
-    return text.trim() === '' && text.includes(' ');
+  // 检查是否包含空拍（空格）
+  const hasRestBeat = (text: string): boolean => {
+    return text.includes(' ');
+  };
+
+  // 检查是否全是空拍
+  const isFullRestBeat = (text: string): boolean => {
+    return text.trim() === '' && text.length > 0;
+  };
+
+  // 将文本中的空格替换为∅符号显示
+  const formatDisplayText = (text: string): string => {
+    if (!text) return '';
+    // 将空格替换为∅符号
+    return text.replace(/ /g, '∅');
   };
 
   // 渲染小节
@@ -270,12 +282,13 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
             const fontSize = calculateFontSize(cell.text);
             const underlineCount = calculateUnderlines(cell.text);
             const isStrongBeat = cellIndex === 0; // 第一拍是强拍
-            const isRest = isRestBeat(cell.text);
+            const isFullRest = isFullRestBeat(cell.text);
+            const displayText = formatDisplayText(cell.text);
 
             return (
               <div
                 key={cellIndex}
-                className={`beat-cell ${isStrongBeat ? 'strong-beat' : ''} ${isCurrentBeat ? 'playing' : ''} ${cell.text && !isRest ? 'has-text' : ''} ${cell.isAccented ? 'accented' : ''} ${isRest ? 'rest-beat' : ''}`}
+                className={`beat-cell ${isStrongBeat ? 'strong-beat' : ''} ${isCurrentBeat ? 'playing' : ''} ${cell.text && !isFullRest ? 'has-text' : ''} ${cell.isAccented ? 'accented' : ''} ${isFullRest ? 'rest-beat' : ''} ${hasRestBeat(cell.text) && !isFullRest ? 'has-rest' : ''}`}
                 onClick={() => {
                   if (!cell.isEditing) {
                     setCellEditing(measureIndex, cellIndex, true);
@@ -310,7 +323,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
                       className={`cell-text ${isCurrentBeat ? 'active' : ''}`}
                       style={{ fontSize: `${fontSize}px` }}
                     >
-                      {isRest ? '∅' : cell.text}
+                      {displayText}
                     </div>
                     {renderUnderlines(underlineCount)}
                   </div>
@@ -362,7 +375,8 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
         <p><strong>使用说明：</strong></p>
         <ul>
           <li>每行2个小节，每小节4拍（4/4拍）</li>
-          <li>单击格子输入歌词，按空格键表示空拍</li>
+          <li>单击格子输入歌词，输入空格表示空拍（显示为∅）</li>
+          <li>例如：输入"嗨 "会显示为"嗨∅"，表示"嗨"后面有一个空拍</li>
           <li>双击格子标记/取消重音（灰色背景）</li>
           <li><strong>下划线规则：</strong>1字=1/4拍无线，2字=1/8拍1线，3-4字=1/16拍2线，5-8字=1/32拍3线</li>
           <li>播放时当前拍会高亮显示，循环播放到最后再从头开始</li>
