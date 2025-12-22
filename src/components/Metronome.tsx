@@ -130,6 +130,9 @@ export default function Metronome({ onBeatChange, onBpmChange }: MetronomeProps)
     }
   }, [backingVolume]);
 
+  // 累计节拍计数（用于歌词高亮）
+  const beatCountRef = useRef(0);
+
   // 处理节拍器逻辑
   useEffect(() => {
     if (isPlaying) {
@@ -137,12 +140,16 @@ export default function Metronome({ onBeatChange, onBpmChange }: MetronomeProps)
 
       intervalRef.current = window.setInterval(() => {
         setCurrentBeat((prev) => {
-          const nextBeat = (prev + 1) % 4; // 4/4拍
+          const nextBeat = (prev + 1) % 4; // 4/4拍显示
           const isStrongBeat = nextBeat === 0;
           playBeat(isStrongBeat);
 
+          // 累计节拍计数
+          beatCountRef.current += 1;
+
           if (onBeatChange) {
-            onBeatChange(nextBeat);
+            // 发送累计节拍计数
+            onBeatChange(beatCountRef.current);
           }
 
           return nextBeat;
@@ -154,6 +161,7 @@ export default function Metronome({ onBeatChange, onBpmChange }: MetronomeProps)
         intervalRef.current = null;
       }
       setCurrentBeat(0);
+      beatCountRef.current = 0; // 重置累计计数
     }
 
     return () => {

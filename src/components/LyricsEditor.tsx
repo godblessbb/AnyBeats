@@ -4,32 +4,51 @@ import { type LyricData } from './AILyricsGenerator';
 
 // 每个格子的数据（1/4拍）
 export interface CellData {
-  text: string;  // 格子中的文字
+  text: string;  // 格子中的文字（空格表示空拍）
   isEditing: boolean;  // 是否正在编辑
   isAccented: boolean;  // 是否标记为重音
 }
 
 interface LyricsEditorProps {
-  currentBeat: number;
+  currentBeat: number;  // 累计节拍计数
   isPlaying: boolean;
   generatedLyrics?: LyricData | null;
 }
 
+// 默认 Rap 歌词示例
+const DEFAULT_LYRICS: string[][] = [
+  // 小节1
+  ['yo', '我来', '说唱', '嗨'],
+  // 小节2
+  ['节奏', '跟着', '走起来', ' '],
+  // 小节3
+  ['每一', '拍都', '有力', '量'],
+  // 小节4
+  ['音乐', '就是', '我信', '仰'],
+  // 小节5
+  ['跟着', '鼓点', '摇摆', 'yeah'],
+  // 小节6
+  ['释放', '所有的', '能量', ' '],
+  // 小节7
+  ['让', '节拍', '带你', '飞'],
+  // 小节8
+  ['这就是', 'AnyBeats', '的', 'vibe'],
+];
+
 export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }: LyricsEditorProps) {
   // 二维数组：measures[measureIndex][cellIndex]
-  // 每个 measure 有 16 个 cells，每个 cell 代表 1/4 拍
+  // 每个 measure 有 4 个 cells，每个 cell 代表 1/4 拍
   const [measures, setMeasures] = useState<CellData[][]>([]);
-  const [measuresCount, setMeasuresCount] = useState(4);
-  const [playbackPosition, setPlaybackPosition] = useState(0); // 以 1/4 拍为单位 (0-15 per measure)
-  const [currentMeasure, setCurrentMeasure] = useState(0);
+  const [measuresCount, setMeasuresCount] = useState(8);
 
   const cellsPerMeasure = 4; // 每小节 4 个格子（每格 = 1 拍）
+  const measuresPerRow = 2;  // 每行 2 个小节
 
-  // 初始化小节数据
+  // 初始化小节数据（包含默认歌词）
   useEffect(() => {
-    const initialMeasures: CellData[][] = Array.from({ length: measuresCount }, () =>
-      Array.from({ length: cellsPerMeasure }, () => ({
-        text: '',
+    const initialMeasures: CellData[][] = Array.from({ length: measuresCount }, (_, measureIndex) =>
+      Array.from({ length: cellsPerMeasure }, (_, cellIndex) => ({
+        text: DEFAULT_LYRICS[measureIndex]?.[cellIndex] || '',
         isEditing: false,
         isAccented: false,
       }))
@@ -44,17 +63,21 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
     }
   }, [generatedLyrics]);
 
-  // 更新播放位置（每 1 拍更新一次）
-  useEffect(() => {
-    if (isPlaying) {
-      // currentBeat 是 1/4 拍，所以每4次更新才移动到下一个格子
-      const beatPosition = Math.floor(currentBeat / 4) % cellsPerMeasure;
-      const measurePosition = Math.floor(currentBeat / (cellsPerMeasure * 4)) % measuresCount;
+  // 计算当前播放位置
+  const getTotalBeats = () => measuresCount * cellsPerMeasure;
 
-      setPlaybackPosition(beatPosition);
-      setCurrentMeasure(measurePosition);
-    }
-  }, [currentBeat, isPlaying, measuresCount]);
+  // 当前高亮的位置（循环播放）
+  const getCurrentPosition = () => {
+    if (!isPlaying || currentBeat === 0) return { measureIndex: -1, cellIndex: -1 };
+
+    const totalBeats = getTotalBeats();
+    // currentBeat 从 1 开始，减 1 得到从 0 开始的索引
+    const beatIndex = (currentBeat - 1) % totalBeats;
+    const measureIndex = Math.floor(beatIndex / cellsPerMeasure);
+    const cellIndex = beatIndex % cellsPerMeasure;
+
+    return { measureIndex, cellIndex };
+  };
 
   // 导入 AI 生成的歌词
   const importLyrics = (data: LyricData) => {
@@ -143,7 +166,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
     });
   };
 
-  // 添加小节
+  // 添加小节（每次添加2个，保持偶数）
   const addMeasure = () => {
     setMeasures((prev) => [
       ...prev,
@@ -152,21 +175,20 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
         isEditing: false,
         isAccented: false,
       })),
+      Array.from({ length: cellsPerMeasure }, () => ({
+        text: '',
+        isEditing: false,
+        isAccented: false,
+      })),
     ]);
-    setMeasuresCount((prev) => prev + 1);
+    setMeasuresCount((prev) => prev + 2);
   };
 
-  // 删除最后一个小节
+  // 删除最后两个小节
   const removeMeasure = () => {
-    if (measuresCount <= 1) return;
-    setMeasures((prev) => prev.slice(0, -1));
-    setMeasuresCount((prev) => prev - 1);
-  };
-
-  // 重置播放位置
-  const resetPlayback = () => {
-    setPlaybackPosition(0);
-    setCurrentMeasure(0);
+    if (measuresCount <= 2) return;
+    setMeasures((prev) => prev.slice(0, -2));
+    setMeasuresCount((prev) => prev - 2);
   };
 
   // 清空所有歌词
@@ -182,20 +204,51 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
     );
   };
 
+  // 计算下划线数量（根据字数表示音符时值）
+  // 1字 = 1/4拍（四分音符）→ 0条下划线
+  // 2字 = 1/8拍（八分音符）→ 1条下划线
+  // 3-4字 = 1/16拍（十六分音符）→ 2条下划线
+  // 5-8字 = 1/32拍（三十二分音符）→ 3条下划线
+  const calculateUnderlines = (text: string): number => {
+    // 空格或空字符串表示空拍
+    if (!text || text.trim() === '') return 0;
+
+    const charCount = text.length;
+    if (charCount === 1) return 0;
+    if (charCount === 2) return 1;
+    if (charCount <= 4) return 2;
+    if (charCount <= 8) return 3;
+    return 4; // 超过8个字
+  };
+
   // 根据字数计算字号
   const calculateFontSize = (text: string): number => {
     const charCount = text.length;
 
     if (charCount === 0) return 20;
-    if (charCount === 1) return 32;   // 1字 -> 最大字号
-    if (charCount === 2) return 28;   // 2字 -> 大字号
-    if (charCount <= 4) return 24;    // 3-4字 -> 中等字号
-    if (charCount <= 6) return 20;    // 5-6字 -> 小字号
-    if (charCount <= 8) return 18;    // 7-8字 -> 更小字号
-    if (charCount <= 10) return 16;   // 9-10字
+    if (charCount === 1) return 28;   // 1字 -> 最大字号
+    if (charCount === 2) return 24;   // 2字 -> 大字号
+    if (charCount <= 4) return 20;    // 3-4字 -> 中等字号
+    if (charCount <= 6) return 16;    // 5-6字 -> 小字号
+    if (charCount <= 8) return 14;    // 7-8字 -> 更小字号
+    return 12; // 超过8个字
+  };
 
-    // 超过10个字，继续缩小
-    return Math.max(12, 16 - (charCount - 10) * 0.3);
+  // 渲染下划线
+  const renderUnderlines = (count: number) => {
+    if (count === 0) return null;
+    return (
+      <div className="underlines">
+        {Array.from({ length: count }, (_, i) => (
+          <div key={i} className="underline" />
+        ))}
+      </div>
+    );
+  };
+
+  // 检查是否为空拍（空格或纯空白）
+  const isRestBeat = (text: string): boolean => {
+    return text.trim() === '' && text.includes(' ');
   };
 
   // 渲染小节
@@ -206,19 +259,23 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
       isAccented: false,
     }));
 
+    const { measureIndex: currentMeasureIdx, cellIndex: currentCellIdx } = getCurrentPosition();
+
     return (
       <div key={measureIndex} className="measure">
         <div className="measure-number">{measureIndex + 1}</div>
         <div className="measure-grid">
           {measureData.map((cell, cellIndex) => {
-            const isCurrentBeat = isPlaying && currentMeasure === measureIndex && playbackPosition === cellIndex;
+            const isCurrentBeat = isPlaying && currentMeasureIdx === measureIndex && currentCellIdx === cellIndex;
             const fontSize = calculateFontSize(cell.text);
+            const underlineCount = calculateUnderlines(cell.text);
             const isStrongBeat = cellIndex === 0; // 第一拍是强拍
+            const isRest = isRestBeat(cell.text);
 
             return (
               <div
                 key={cellIndex}
-                className={`beat-cell ${isStrongBeat ? 'strong-beat' : ''} ${isCurrentBeat ? 'playing' : ''} ${cell.text ? 'has-text' : ''} ${cell.isAccented ? 'accented' : ''}`}
+                className={`beat-cell ${isStrongBeat ? 'strong-beat' : ''} ${isCurrentBeat ? 'playing' : ''} ${cell.text && !isRest ? 'has-text' : ''} ${cell.isAccented ? 'accented' : ''} ${isRest ? 'rest-beat' : ''}`}
                 onClick={() => {
                   if (!cell.isEditing) {
                     setCellEditing(measureIndex, cellIndex, true);
@@ -244,14 +301,18 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
                       }
                     }}
                     autoFocus
+                    placeholder="空格=空拍"
                     style={{ fontSize: `${fontSize}px` }}
                   />
                 ) : (
-                  <div
-                    className={`cell-text ${isCurrentBeat ? 'active' : ''}`}
-                    style={{ fontSize: `${fontSize}px` }}
-                  >
-                    {cell.text}
+                  <div className="cell-content">
+                    <div
+                      className={`cell-text ${isCurrentBeat ? 'active' : ''}`}
+                      style={{ fontSize: `${fontSize}px` }}
+                    >
+                      {isRest ? '∅' : cell.text}
+                    </div>
+                    {renderUnderlines(underlineCount)}
                   </div>
                 )}
               </div>
@@ -262,42 +323,49 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
     );
   };
 
+  // 将小节按行分组（每行2个小节）
+  const renderMeasureRows = () => {
+    const rows = [];
+    for (let i = 0; i < measuresCount; i += measuresPerRow) {
+      rows.push(
+        <div key={i} className="measure-row">
+          {renderMeasure(i)}
+          {i + 1 < measuresCount && renderMeasure(i + 1)}
+        </div>
+      );
+    }
+    return rows;
+  };
+
   return (
     <div className="lyrics-editor">
       <div className="editor-header">
         <h3>歌词创作区</h3>
         <div className="editor-controls">
           <button onClick={addMeasure} className="control-btn add-btn">
-            ➕ 添加小节
+            + 添加小节
           </button>
-          <button onClick={removeMeasure} className="control-btn remove-btn" disabled={measuresCount <= 1}>
-            ➖ 删除小节
-          </button>
-          <button onClick={resetPlayback} className="control-btn reset-btn">
-            🔄 重置播放
+          <button onClick={removeMeasure} className="control-btn remove-btn" disabled={measuresCount <= 2}>
+            - 删除小节
           </button>
           <button onClick={clearAllLyrics} className="control-btn clear-btn">
-            🗑️ 清空歌词
+            清空歌词
           </button>
         </div>
       </div>
 
       <div className="lyrics-grid">
-        {/* 每行显示1个小节 */}
-        {Array.from({ length: measuresCount }).map((_, measureIndex) => (
-          renderMeasure(measureIndex)
-        ))}
+        {renderMeasureRows()}
       </div>
 
       <div className="editor-tips">
         <p><strong>使用说明：</strong></p>
         <ul>
-          <li>每个小节有4个歌词块，每块代表1拍</li>
-          <li>单击格子输入歌词</li>
+          <li>每行2个小节，每小节4拍（4/4拍）</li>
+          <li>单击格子输入歌词，按空格键表示空拍</li>
           <li>双击格子标记/取消重音（灰色背景）</li>
-          <li>字号自动调整：字数越多，字号越小</li>
-          <li>输入完成后按 Enter 或点击其他地方完成编辑</li>
-          <li>播放时当前格子会高亮显示（绿色）</li>
+          <li><strong>下划线规则：</strong>1字=1/4拍无线，2字=1/8拍1线，3-4字=1/16拍2线，5-8字=1/32拍3线</li>
+          <li>播放时当前拍会高亮显示，循环播放到最后再从头开始</li>
         </ul>
       </div>
     </div>
