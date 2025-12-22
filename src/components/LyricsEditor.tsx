@@ -23,7 +23,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
   const [playbackPosition, setPlaybackPosition] = useState(0); // 以 1/4 拍为单位 (0-15 per measure)
   const [currentMeasure, setCurrentMeasure] = useState(0);
 
-  const cellsPerMeasure = 16; // 每小节 16 个格子（每格 = 1/4 拍）
+  const cellsPerMeasure = 4; // 每小节 4 个格子（每格 = 1 拍）
 
   // 初始化小节数据
   useEffect(() => {
@@ -44,17 +44,15 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
     }
   }, [generatedLyrics]);
 
-  // 更新播放位置（每 1/4 拍更新一次）
+  // 更新播放位置（每 1 拍更新一次）
   useEffect(() => {
     if (isPlaying) {
-      setPlaybackPosition((prev) => {
-        const next = (prev + 1) % cellsPerMeasure;
-        if (next === 0) {
-          // 进入下一小节
-          setCurrentMeasure((m) => (m + 1) % measuresCount);
-        }
-        return next;
-      });
+      // currentBeat 是 1/4 拍，所以每4次更新才移动到下一个格子
+      const beatPosition = Math.floor(currentBeat / 4) % cellsPerMeasure;
+      const measurePosition = Math.floor(currentBeat / (cellsPerMeasure * 4)) % measuresCount;
+
+      setPlaybackPosition(beatPosition);
+      setCurrentMeasure(measurePosition);
     }
   }, [currentBeat, isPlaying, measuresCount]);
 
@@ -80,11 +78,16 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
     // 填充歌词数据
     data.measures.forEach((measure) => {
       measure.lyrics.forEach((lyric) => {
-        // startBeat 以 1/16 拍为单位，转换为 1/4 拍单位（除以 4）
-        const cellIndex = Math.floor(lyric.startBeat / 4);
+        // startBeat 以 1/16 拍为单位，转换为 1 拍单位（除以 16）
+        const cellIndex = Math.floor(lyric.startBeat / 16);
 
         if (cellIndex >= 0 && cellIndex < cellsPerMeasure) {
-          newMeasures[measure.measureIndex][cellIndex].text = lyric.text;
+          // 如果该格子已有文字，拼接到一起
+          if (newMeasures[measure.measureIndex][cellIndex].text) {
+            newMeasures[measure.measureIndex][cellIndex].text += lyric.text;
+          } else {
+            newMeasures[measure.measureIndex][cellIndex].text = lyric.text;
+          }
         }
       });
     });
@@ -179,18 +182,20 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
     );
   };
 
-  // 根据字数计算字号（调整为更小的字号以支持横向显示）
+  // 根据字数计算字号
   const calculateFontSize = (text: string): number => {
     const charCount = text.length;
 
-    if (charCount === 0) return 14;
-    if (charCount === 1) return 18;  // 1字 = 1/4拍 -> 大字号
-    if (charCount === 2) return 16;  // 2字 = 1/8拍 -> 中等字号
-    if (charCount <= 4) return 14;   // 3-4字 = 1/16拍 -> 小字号
-    if (charCount <= 8) return 12;   // 5-8字 = 1/32拍 -> 最小字号
+    if (charCount === 0) return 20;
+    if (charCount === 1) return 32;   // 1字 -> 最大字号
+    if (charCount === 2) return 28;   // 2字 -> 大字号
+    if (charCount <= 4) return 24;    // 3-4字 -> 中等字号
+    if (charCount <= 6) return 20;    // 5-6字 -> 小字号
+    if (charCount <= 8) return 18;    // 7-8字 -> 更小字号
+    if (charCount <= 10) return 16;   // 9-10字
 
-    // 超过8个字，继续缩小
-    return Math.max(10, 12 - (charCount - 8) * 0.5);
+    // 超过10个字，继续缩小
+    return Math.max(12, 16 - (charCount - 10) * 0.3);
   };
 
   // 渲染小节
@@ -208,7 +213,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
           {measureData.map((cell, cellIndex) => {
             const isCurrentBeat = isPlaying && currentMeasure === measureIndex && playbackPosition === cellIndex;
             const fontSize = calculateFontSize(cell.text);
-            const isStrongBeat = cellIndex % 4 === 0;
+            const isStrongBeat = cellIndex === 0; // 第一拍是强拍
 
             return (
               <div
@@ -278,21 +283,19 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
       </div>
 
       <div className="lyrics-grid">
-        {/* 每行显示2个小节 */}
-        {Array.from({ length: Math.ceil(measuresCount / 2) }).map((_, rowIndex) => (
-          <div key={rowIndex} className="measure-row">
-            {renderMeasure(rowIndex * 2)}
-            {rowIndex * 2 + 1 < measuresCount && renderMeasure(rowIndex * 2 + 1)}
-          </div>
+        {/* 每行显示1个小节 */}
+        {Array.from({ length: measuresCount }).map((_, measureIndex) => (
+          renderMeasure(measureIndex)
         ))}
       </div>
 
       <div className="editor-tips">
         <p><strong>使用说明：</strong></p>
         <ul>
-          <li>单击格子输入歌词（每格 = 1/4 拍）</li>
+          <li>每个小节有4个歌词块，每块代表1拍</li>
+          <li>单击格子输入歌词</li>
           <li>双击格子标记/取消重音（灰色背景）</li>
-          <li>字号自动调整：1字=18px，2字=16px，3-4字=14px，5-8字=12px</li>
+          <li>字号自动调整：字数越多，字号越小</li>
           <li>输入完成后按 Enter 或点击其他地方完成编辑</li>
           <li>播放时当前格子会高亮显示（绿色）</li>
         </ul>
