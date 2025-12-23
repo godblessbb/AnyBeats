@@ -1,0 +1,8 @@
+fastapi==0.109.0
+uvicorn==0.27.0
+chromadb==0.4.22
+sentence-transformers==2.2.2
+pypinyin==0.50.0
+jieba==0.42.1
+numpy==1.26.3
+pydantic==2.5.3

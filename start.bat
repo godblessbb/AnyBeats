@@ -4,7 +4,10 @@ echo ========================================
 echo   AnyBeats - Rap 创作工具
 echo ========================================
 echo.
-echo 正在启动开发服务器...
+echo [提示] 如需使用韵脚助手，请先启动后端:
+echo        cd backend ^&^& start.bat
+echo.
+echo 正在启动前端开发服务器...
 echo.
 
 REM 激活 conda 环境

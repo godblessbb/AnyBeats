@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.env
+
+# 向量数据库（需要本地初始化）
+rhyme_db/
+
+# 数据文件
+data/*.json
+data/custom_words.txt
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo

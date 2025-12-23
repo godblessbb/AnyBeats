@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import './AILyricsGenerator.css';
 import {
   defaultOpenAIConfig,
@@ -9,6 +9,7 @@ import {
   getApiKey,
   AVAILABLE_MODELS,
 } from '../config/openai.config';
+import { RHYME_API } from '../config/api.config';
 
 export interface LyricData {
   bpm: number;
@@ -87,6 +88,9 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
   const [selectedModel, setSelectedModel] = useState(getStoredModel());
   const [isCollapsed, setIsCollapsed] = useState(false);
 
+  // 后端状态
+  const [backendAvailable, setBackendAvailable] = useState<boolean | null>(null);
+
   // AI直出歌词状态
   const [prompt, setPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -97,10 +101,26 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
   const [wordLength, setWordLength] = useState<number>(2);
   const [rhymeTheme, setRhymeTheme] = useState('');
   const [rhymeWords, setRhymeWords] = useState<RhymeWord[]>([]);
-  const [excludedWords, setExcludedWords] = useState<string[]>([]);
   const [isGeneratingRhymes, setIsGeneratingRhymes] = useState(false);
   const [rhymeError, setRhymeError] = useState<string | null>(null);
   const [activePoSTab, setActivePoSTab] = useState('all');
+
+  // 检查后端是否可用
+  useEffect(() => {
+    const checkBackend = async () => {
+      try {
+        const response = await fetch(RHYME_API.health, {
+          method: 'GET',
+          signal: AbortSignal.timeout(3000)
+        });
+        const data = await response.json();
+        setBackendAvailable(data.db_ready === true);
+      } catch {
+        setBackendAvailable(false);
+      }
+    };
+    checkBackend();
+  }, []);
 
   // 切换模型
   const handleModelChange = (model: string) => {
@@ -108,7 +128,7 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
     saveModel(model);
   };
 
-  // 调用 AI API
+  // 调用 AI API (用于歌词生成)
   const callAI = async (systemPrompt: string, userPrompt: string, maxTokens: number = 2000) => {
     const apiKey = getApiKey(selectedModel);
 
@@ -215,7 +235,7 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
     onGenerate(exampleData);
   };
 
-  // 韵脚助手：生成押韵词汇
+  // 韵脚助手：使用后端API生成押韵词汇
   const generateRhymeWords = async () => {
     if (!selectedRhyme) {
       setRhymeError('请选择韵母');
@@ -226,55 +246,41 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
     setRhymeError(null);
 
     try {
-      const excludeList = excludedWords.length > 0
-        ? `\n\n注意：请不要包含以下已生成过的词汇：${excludedWords.join('、')}`
-        : '';
-
-      const themeHint = rhymeTheme.trim()
-        ? `，主题/场景偏向：${rhymeTheme}`
-        : '';
-
-      const systemPrompt = `你是一个专业的中文押韵词汇助手。请生成押韵词汇列表。
-
-要求：
-1. 生成恰好100个押${selectedRhyme}韵的${wordLength}字中文词汇${themeHint}
-2. 词汇应该是常用词，适合用于说唱/歌词创作
-3. 为每个词标注词性（名词、动词、形容词、副词、其他）
-4. 返回JSON格式：{"words": [{"word": "词汇", "partOfSpeech": "词性"}, ...]}
-5. 确保所有词都押${selectedRhyme}韵，且字数严格为${wordLength}字
-${excludeList}
-
-只返回JSON，不要其他解释。`;
-
-      const data = await callAI(
-        systemPrompt,
-        `请生成100个押${selectedRhyme}韵的${wordLength}字词汇`,
-        4000
-      );
-      const content = data.choices[0].message.content;
-
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('无法解析生成的词汇数据');
-      }
-
-      const result = JSON.parse(jsonMatch[0]);
-      const rawWords: RhymeWord[] = result.words || [];
-
-      // 去重：过滤掉重复的词汇
-      const seenWords = new Set<string>();
-      const newWords: RhymeWord[] = rawWords.filter(w => {
-        if (seenWords.has(w.word)) {
-          return false;
-        }
-        seenWords.add(w.word);
-        return true;
+      // 调用后端API
+      const response = await fetch(RHYME_API.search, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          rhyme: selectedRhyme,
+          word_length: wordLength,
+          theme: rhymeTheme || null,
+          limit: 100,
+        }),
       });
 
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `请求失败 (${response.status})`);
+      }
+
+      const data = await response.json();
+
+      // 转换格式
+      const newWords: RhymeWord[] = data.words.map((w: any) => ({
+        word: w.word,
+        partOfSpeech: w.part_of_speech || '其他',
+      }));
+
       setRhymeWords(newWords);
-      setExcludedWords(prev => [...prev, ...newWords.map(w => w.word)]);
     } catch (err: any) {
-      setRhymeError(err.message || '生成失败，请检查 API Key 配置或网络连接');
+      // 检查是否是后端未启动
+      if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        setRhymeError('韵脚后端未启动，请先运行 backend/start.bat');
+      } else {
+        setRhymeError(err.message || '生成失败');
+      }
       console.error('生成押韵词汇失败:', err);
     } finally {
       setIsGeneratingRhymes(false);
@@ -286,7 +292,6 @@ ${excludeList}
   };
 
   const clearAndGenerate = () => {
-    setExcludedWords([]);
     setRhymeWords([]);
     generateRhymeWords();
   };
@@ -330,6 +335,8 @@ ${excludeList}
               onClick={() => setActiveMainTab('rhyme')}
             >
               韵脚助手
+              {backendAvailable === true && <span className="backend-status online">●</span>}
+              {backendAvailable === false && <span className="backend-status offline">●</span>}
             </button>
             <button
               className={`main-tab ${activeMainTab === 'lyrics' ? 'active' : ''}`}
@@ -342,6 +349,13 @@ ${excludeList}
           {/* 韵脚助手 Tab */}
           {activeMainTab === 'rhyme' && (
             <div className="rhyme-tab-content">
+              {/* 后端状态提示 */}
+              {backendAvailable === false && (
+                <div className="backend-warning">
+                  ⚠️ 韵脚后端未启动，请先运行 <code>backend/start.bat</code> 初始化词库
+                </div>
+              )}
+
               {/* 控件一行排列 */}
               <div className="rhyme-controls-row">
                 <div className="control-item small">
@@ -372,12 +386,12 @@ ${excludeList}
                 </div>
 
                 <div className="control-item large">
-                  <label>主题（可选）</label>
+                  <label>主题（可选，语义搜索）</label>
                   <input
                     type="text"
                     value={rhymeTheme}
                     onChange={(e) => setRhymeTheme(e.target.value)}
-                    placeholder="如：恋爱、炫富、街头、励志..."
+                    placeholder="如：汽车、恋爱、炫富、街头、励志..."
                     className="theme-input"
                   />
                 </div>
@@ -389,7 +403,7 @@ ${excludeList}
                   disabled={isGeneratingRhymes || !selectedRhyme}
                   className="generate-button"
                 >
-                  {isGeneratingRhymes ? '生成中...' : '生成押韵词汇'}
+                  {isGeneratingRhymes ? '搜索中...' : '搜索押韵词汇'}
                 </button>
 
                 {rhymeWords.length > 0 && (
@@ -449,10 +463,10 @@ ${excludeList}
                 <div className="rhyme-tips">
                   <p><strong>使用说明：</strong></p>
                   <ul>
-                    <li>选择韵母和字数后，点击"生成押韵词汇"</li>
-                    <li>可输入主题让词汇更贴合你的创作场景</li>
+                    <li>选择韵母和字数后，点击"搜索押韵词汇"</li>
+                    <li>输入主题可进行<strong>语义搜索</strong>，找到相关词汇</li>
+                    <li>基于本地词库 + 向量数据库，100%押韵准确</li>
                     <li>生成的词汇可以<strong>直接拖拽</strong>到下方节拍格子中</li>
-                    <li>点击"换一批"会生成新词汇（不重复之前的）</li>
                   </ul>
                 </div>
               )}
