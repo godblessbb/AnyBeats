@@ -1,14 +1,26 @@
 /**
- * OpenAI API 配置文件
- * 用于存储 API 密钥、模型参数和系统级 prompt
+ * AI API 配置文件
+ * 支持 OpenAI 和 DeepSeek 模型
  */
 
-export interface OpenAIConfig {
+export interface AIConfig {
   apiKey: string;
   model: string;
   temperature: number;
   maxTokens?: number;
 }
+
+// 支持的模型列表
+export const AVAILABLE_MODELS = [
+  { value: 'deepseek-chat', label: 'DeepSeek Chat', provider: 'deepseek' },
+  { value: 'gpt-4o-mini', label: 'GPT-4o Mini', provider: 'openai' },
+];
+
+// 模型对应的 API 端点
+export const API_ENDPOINTS: Record<string, string> = {
+  'deepseek': 'https://api.deepseek.com/v1/chat/completions',
+  'openai': 'https://api.openai.com/v1/chat/completions',
+};
 
 export interface LyricJsonTemplate {
   bpm: number;
@@ -17,25 +29,39 @@ export interface LyricJsonTemplate {
     measureIndex: number;
     lyrics: Array<{
       text: string;
-      startBeat: number;  // 以 1/16 拍为单位
-      duration: number;   // 以 1/16 拍为单位
+      startBeat: number;
+      duration: number;
     }>;
   }>;
 }
 
 /**
- * 默认 OpenAI 配置
+ * 默认配置
  */
-export const defaultOpenAIConfig: Omit<OpenAIConfig, 'apiKey'> = {
-  model: 'gpt-4',
+export const defaultOpenAIConfig: Omit<AIConfig, 'apiKey'> = {
+  model: 'deepseek-chat', // 默认使用 DeepSeek
   temperature: 0.8,
   maxTokens: 2000,
 };
 
 /**
+ * 获取模型对应的 provider
+ */
+export const getModelProvider = (model: string): string => {
+  const modelInfo = AVAILABLE_MODELS.find(m => m.value === model);
+  return modelInfo?.provider || 'openai';
+};
+
+/**
+ * 获取 API 端点
+ */
+export const getApiEndpoint = (model: string): string => {
+  const provider = getModelProvider(model);
+  return API_ENDPOINTS[provider] || API_ENDPOINTS['openai'];
+};
+
+/**
  * 系统级 Prompt 模板
- * @param bpm 当前 BPM 值
- * @returns 完整的系统 prompt
  */
 export const getSystemPrompt = (bpm: number): string => {
   return `你是一个专业的说唱歌词创作助手。请根据用户的需求生成说唱歌词，并严格按照以下JSON格式输出：
@@ -69,8 +95,6 @@ ${getJsonTemplate(bpm)}
 
 /**
  * JSON 模板字符串
- * @param bpm 当前 BPM 值
- * @returns JSON 模板示例
  */
 export const getJsonTemplate = (bpm: number): string => {
   const template: LyricJsonTemplate = {
@@ -80,31 +104,14 @@ export const getJsonTemplate = (bpm: number): string => {
       {
         measureIndex: 0,
         lyrics: [
-          {
-            text: "我",
-            startBeat: 0,
-            duration: 4
-          },
-          {
-            text: "走",
-            startBeat: 4,
-            duration: 4
-          },
-          {
-            text: "在",
-            startBeat: 8,
-            duration: 4
-          },
-          {
-            text: "街上",
-            startBeat: 12,
-            duration: 4
-          }
+          { text: "我", startBeat: 0, duration: 4 },
+          { text: "走", startBeat: 4, duration: 4 },
+          { text: "在", startBeat: 8, duration: 4 },
+          { text: "街上", startBeat: 12, duration: 4 }
         ]
       }
     ]
   };
-
   return JSON.stringify(template, null, 2);
 };
 
@@ -112,19 +119,33 @@ export const getJsonTemplate = (bpm: number): string => {
  * 从 localStorage 获取 API Key
  */
 export const getStoredApiKey = (): string => {
-  return localStorage.getItem('openai_api_key') || '';
+  return localStorage.getItem('ai_api_key') || '';
 };
 
 /**
  * 保存 API Key 到 localStorage
  */
 export const saveApiKey = (key: string): void => {
-  localStorage.setItem('openai_api_key', key);
+  localStorage.setItem('ai_api_key', key);
+};
+
+/**
+ * 获取存储的模型选择
+ */
+export const getStoredModel = (): string => {
+  return localStorage.getItem('ai_model') || 'deepseek-chat';
+};
+
+/**
+ * 保存模型选择
+ */
+export const saveModel = (model: string): void => {
+  localStorage.setItem('ai_model', model);
 };
 
 /**
  * 清除 API Key
  */
 export const clearApiKey = (): void => {
-  localStorage.removeItem('openai_api_key');
+  localStorage.removeItem('ai_api_key');
 };

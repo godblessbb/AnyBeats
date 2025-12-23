@@ -20,6 +20,28 @@
   font-weight: 600;
 }
 
+.header-buttons {
+  display: flex;
+  gap: 10px;
+}
+
+.api-settings-btn {
+  padding: 8px 16px;
+  border: 2px solid #ffc107;
+  background: #ffc107;
+  color: #333;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.api-settings-btn:hover {
+  background: #e0a800;
+  border-color: #e0a800;
+}
+
 .collapse-button {
   padding: 8px 16px;
   border: 2px solid #667eea;
@@ -41,6 +63,65 @@
   display: flex;
   flex-direction: column;
   gap: 15px;
+}
+
+/* API Key 设置区域 */
+.api-key-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 15px;
+  background: #fff3cd;
+  border-radius: 10px;
+  border: 1px solid #ffc107;
+}
+
+.api-key-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.api-key-row label {
+  font-size: 14px;
+  font-weight: 500;
+  color: #856404;
+  white-space: nowrap;
+  min-width: 60px;
+}
+
+.api-key-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ffc107;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: monospace;
+}
+
+.model-select {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1px solid #ffc107;
+  border-radius: 6px;
+  font-size: 14px;
+  background: white;
+}
+
+.save-api-btn {
+  padding: 8px 20px;
+  border: none;
+  background: #28a745;
+  color: white;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.save-api-btn:hover {
+  background: #218838;
 }
 
 /* 主 Tab 切换 */
@@ -75,47 +156,143 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-/* API Key 设置 */
-.api-key-section {
+/* 韵脚助手控件 - 一行排列 */
+.rhyme-controls-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.control-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.control-item.small {
+  flex: 0 0 auto;
+  min-width: 100px;
+}
+
+.control-item.large {
+  flex: 1;
+}
+
+.control-item label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+}
+
+.control-item .required {
+  color: #f44336;
+}
+
+.rhyme-select,
+.length-select {
+  padding: 10px 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 14px;
+  transition: border-color 0.2s;
+  background: white;
+  min-width: 90px;
+}
+
+.theme-input {
+  padding: 10px 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 14px;
+  transition: border-color 0.2s;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.rhyme-select:focus,
+.length-select:focus,
+.theme-input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.rhyme-buttons {
   display: flex;
   gap: 10px;
-  align-items: center;
-  padding: 15px;
-  background: #fff3cd;
-  border-radius: 10px;
-  border: 1px solid #ffc107;
+  flex-wrap: wrap;
 }
 
-.api-key-section label {
-  font-size: 14px;
-  font-weight: 500;
-  color: #856404;
-  white-space: nowrap;
-}
-
-.api-key-input {
+/* 按钮样式 */
+.generate-button,
+.example-button,
+.refresh-button,
+.clear-button {
   flex: 1;
-  padding: 8px 12px;
-  border: 1px solid #ffc107;
-  border-radius: 6px;
-  font-size: 14px;
-  font-family: monospace;
-}
-
-.close-api-input {
-  padding: 8px 16px;
+  min-width: 120px;
+  padding: 12px 20px;
   border: none;
-  background: #28a745;
-  color: white;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
+  border-radius: 10px;
+  font-size: 15px;
   font-weight: 500;
-  transition: all 0.2s;
+  cursor: pointer;
+  transition: all 0.3s;
 }
 
-.close-api-input:hover {
-  background: #218838;
+.generate-button {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.generate-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+}
+
+.generate-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.example-button {
+  background: #17a2b8;
+  color: white;
+}
+
+.example-button:hover {
+  background: #138496;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(23, 162, 184, 0.4);
+}
+
+.refresh-button {
+  background: #17a2b8;
+  color: white;
+}
+
+.refresh-button:hover:not(:disabled) {
+  background: #138496;
+  transform: translateY(-2px);
+}
+
+.refresh-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.clear-button {
+  background: #6c757d;
+  color: white;
+}
+
+.clear-button:hover:not(:disabled) {
+  background: #5a6268;
+  transform: translateY(-2px);
+}
+
+.clear-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
 }
 
 /* AI直出歌词 Tab 内容 */
@@ -164,158 +341,11 @@
   flex-wrap: wrap;
 }
 
-.generate-button,
-.example-button,
-.api-key-button,
-.refresh-button,
-.clear-button {
-  flex: 1;
-  min-width: 120px;
-  padding: 12px 20px;
-  border: none;
-  border-radius: 10px;
-  font-size: 15px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.generate-button {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-}
-
-.generate-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
-}
-
-.generate-button:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.example-button {
-  background: #17a2b8;
-  color: white;
-}
-
-.example-button:hover {
-  background: #138496;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(23, 162, 184, 0.4);
-}
-
-.api-key-button {
-  background: #ffc107;
-  color: #333;
-}
-
-.api-key-button:hover {
-  background: #e0a800;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(255, 193, 7, 0.4);
-}
-
-.api-key-button.small {
-  flex: 0;
-  min-width: auto;
-  padding: 10px 16px;
-  font-size: 13px;
-}
-
-.refresh-button {
-  background: #17a2b8;
-  color: white;
-}
-
-.refresh-button:hover:not(:disabled) {
-  background: #138496;
-  transform: translateY(-2px);
-}
-
-.refresh-button:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-}
-
-.clear-button {
-  background: #6c757d;
-  color: white;
-}
-
-.clear-button:hover:not(:disabled) {
-  background: #5a6268;
-  transform: translateY(-2px);
-}
-
-.clear-button:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-}
-
 /* 韵脚助手 Tab 内容 */
 .rhyme-tab-content {
   display: flex;
   flex-direction: column;
   gap: 15px;
-}
-
-.rhyme-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.control-row {
-  display: flex;
-  gap: 15px;
-}
-
-.control-item {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex: 1;
-}
-
-.control-item.full-width {
-  flex: 1;
-}
-
-.control-item label {
-  font-size: 14px;
-  font-weight: 500;
-  color: #333;
-}
-
-.control-item .required {
-  color: #f44336;
-}
-
-.rhyme-select,
-.length-select,
-.theme-input {
-  padding: 10px 12px;
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  font-size: 14px;
-  transition: border-color 0.2s;
-}
-
-.rhyme-select:focus,
-.length-select:focus,
-.theme-input:focus {
-  outline: none;
-  border-color: #667eea;
-}
-
-.rhyme-buttons {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-top: 5px;
 }
 
 /* 词性分类 Tabs */
@@ -447,6 +477,16 @@
 
 /* 响应式 */
 @media (max-width: 768px) {
+  .rhyme-controls-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .control-item.small,
+  .control-item.large {
+    flex: 1;
+  }
+
   .button-group,
   .rhyme-buttons {
     flex-direction: column;
@@ -454,7 +494,6 @@
 
   .generate-button,
   .example-button,
-  .api-key-button,
   .refresh-button,
   .clear-button {
     width: 100%;
@@ -465,8 +504,13 @@
     align-items: stretch;
   }
 
-  .control-row {
+  .api-key-row {
     flex-direction: column;
+    align-items: stretch;
+  }
+
+  .api-key-row label {
+    min-width: auto;
   }
 
   .word-cards-grid {
@@ -479,5 +523,10 @@
 
   .main-tab {
     text-align: center;
+  }
+
+  .header-buttons {
+    flex-direction: column;
+    gap: 5px;
   }
 }

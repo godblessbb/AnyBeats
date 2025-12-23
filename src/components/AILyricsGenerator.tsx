@@ -4,7 +4,11 @@ import {
   defaultOpenAIConfig,
   getSystemPrompt,
   getStoredApiKey,
-  saveApiKey
+  saveApiKey,
+  getStoredModel,
+  saveModel,
+  getApiEndpoint,
+  AVAILABLE_MODELS,
 } from '../config/openai.config';
 
 export interface LyricData {
@@ -24,10 +28,9 @@ export interface LyricItem {
   duration: number;
 }
 
-// 韵脚助手生成的词汇
 export interface RhymeWord {
   word: string;
-  partOfSpeech: string; // 词性：名词、动词、形容词、副词等
+  partOfSpeech: string;
 }
 
 interface AILyricsGeneratorProps {
@@ -37,41 +40,37 @@ interface AILyricsGeneratorProps {
 
 // 常用韵母列表
 const RHYME_OPTIONS = [
-  { value: 'a', label: 'a (啊、大、他)' },
-  { value: 'ai', label: 'ai (爱、开、来)' },
-  { value: 'an', label: 'an (安、看、man)' },
-  { value: 'ang', label: 'ang (放、想、狂)' },
-  { value: 'ao', label: 'ao (好、跑、道)' },
-  { value: 'e', label: 'e (了、得、车)' },
-  { value: 'ei', label: 'ei (给、美、飞)' },
-  { value: 'en', label: 'en (人、门、很)' },
-  { value: 'eng', label: 'eng (风、梦、等)' },
-  { value: 'i', label: 'i (你、地、意)' },
-  { value: 'ia', label: 'ia (家、下、夏)' },
-  { value: 'ian', label: 'ian (天、边、钱)' },
-  { value: 'iang', label: 'iang (想、亮、样)' },
-  { value: 'iao', label: 'iao (要、跳、笑)' },
-  { value: 'ie', label: 'ie (夜、街、写)' },
-  { value: 'in', label: 'in (心、新、金)' },
-  { value: 'ing', label: 'ing (行、情、听)' },
-  { value: 'iong', label: 'iong (用、穷、熊)' },
-  { value: 'iu', label: 'iu (流、求、走)' },
-  { value: 'o', label: 'o (我、火、多)' },
-  { value: 'ong', label: 'ong (中、同、红)' },
-  { value: 'ou', label: 'ou (走、手、头)' },
-  { value: 'u', label: 'u (不、路、哭)' },
-  { value: 'ua', label: 'ua (话、花、挂)' },
-  { value: 'uai', label: 'uai (快、怀、外)' },
-  { value: 'uan', label: 'uan (完、看、转)' },
-  { value: 'uang', label: 'uang (王、光、装)' },
-  { value: 'ue', label: 'ue/üe (说、学、月)' },
-  { value: 'ui', label: 'ui (对、水、最)' },
-  { value: 'un', label: 'un (问、春、困)' },
-  { value: 'uo', label: 'uo (说、过、火)' },
-  { value: 'v', label: 'ü (女、绿、雨)' },
+  { value: 'a', label: 'a (啊、大)' },
+  { value: 'ai', label: 'ai (爱、来)' },
+  { value: 'an', label: 'an (安、看)' },
+  { value: 'ang', label: 'ang (放、想)' },
+  { value: 'ao', label: 'ao (好、道)' },
+  { value: 'e', label: 'e (了、得)' },
+  { value: 'ei', label: 'ei (给、飞)' },
+  { value: 'en', label: 'en (人、很)' },
+  { value: 'eng', label: 'eng (风、梦)' },
+  { value: 'i', label: 'i (你、意)' },
+  { value: 'ia', label: 'ia (家、下)' },
+  { value: 'ian', label: 'ian (天、钱)' },
+  { value: 'iang', label: 'iang (想、样)' },
+  { value: 'iao', label: 'iao (要、笑)' },
+  { value: 'ie', label: 'ie (夜、写)' },
+  { value: 'in', label: 'in (心、金)' },
+  { value: 'ing', label: 'ing (行、听)' },
+  { value: 'iu', label: 'iu (流、走)' },
+  { value: 'o', label: 'o (我、多)' },
+  { value: 'ong', label: 'ong (中、红)' },
+  { value: 'ou', label: 'ou (走、头)' },
+  { value: 'u', label: 'u (不、路)' },
+  { value: 'ua', label: 'ua (话、花)' },
+  { value: 'uan', label: 'uan (完、转)' },
+  { value: 'uang', label: 'uang (王、光)' },
+  { value: 'ue', label: 'ue (说、月)' },
+  { value: 'ui', label: 'ui (对、最)' },
+  { value: 'un', label: 'un (问、春)' },
+  { value: 'uo', label: 'uo (说、过)' },
 ];
 
-// 词性分类
 const PART_OF_SPEECH_TABS = [
   { value: 'all', label: '全部' },
   { value: '名词', label: '名词' },
@@ -82,16 +81,19 @@ const PART_OF_SPEECH_TABS = [
 ];
 
 export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGeneratorProps) {
-  // 主 Tab 状态
-  const [activeMainTab, setActiveMainTab] = useState<'lyrics' | 'rhyme'>('lyrics');
+  // 主 Tab 状态 - 默认韵脚助手
+  const [activeMainTab, setActiveMainTab] = useState<'lyrics' | 'rhyme'>('rhyme');
+
+  // 通用状态
+  const [apiKey, setApiKey] = useState(getStoredApiKey());
+  const [selectedModel, setSelectedModel] = useState(getStoredModel());
+  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   // AI直出歌词状态
   const [prompt, setPrompt] = useState('');
-  const [apiKey, setApiKey] = useState(getStoredApiKey());
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
-  const [isCollapsed, setIsCollapsed] = useState(false);
 
   // 韵脚助手状态
   const [selectedRhyme, setSelectedRhyme] = useState('');
@@ -103,6 +105,42 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
   const [rhymeError, setRhymeError] = useState<string | null>(null);
   const [activePoSTab, setActivePoSTab] = useState('all');
 
+  // 保存 API 设置
+  const handleSaveApiSettings = () => {
+    saveApiKey(apiKey);
+    saveModel(selectedModel);
+    setShowApiKeyInput(false);
+  };
+
+  // 调用 AI API
+  const callAI = async (systemPrompt: string, userPrompt: string, maxTokens: number = 2000) => {
+    const endpoint = getApiEndpoint(selectedModel);
+
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: selectedModel,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt }
+        ],
+        temperature: defaultOpenAIConfig.temperature,
+        max_tokens: maxTokens,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error?.message || `API 请求失败 (${response.status})`);
+    }
+
+    return response.json();
+  };
+
   // AI直出歌词功能
   const generateLyrics = async () => {
     if (!prompt.trim()) {
@@ -111,7 +149,7 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
     }
 
     if (!apiKey.trim()) {
-      setError('请先设置 OpenAI API Key');
+      setError('请先设置 API Key');
       setShowApiKeyInput(true);
       return;
     }
@@ -121,30 +159,7 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
 
     try {
       const systemPrompt = getSystemPrompt(currentBpm);
-
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: defaultOpenAIConfig.model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: prompt }
-          ],
-          temperature: defaultOpenAIConfig.temperature,
-          max_tokens: defaultOpenAIConfig.maxTokens,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || '生成失败');
-      }
-
-      const data = await response.json();
+      const data = await callAI(systemPrompt, prompt);
       const content = data.choices[0].message.content;
 
       const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -161,7 +176,7 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
       onGenerate(lyricData);
       setPrompt('');
     } catch (err: any) {
-      setError(err.message || '生成失败，请检查API Key或网络连接');
+      setError(err.message || '生成失败，请检查 API Key 或网络连接');
       console.error('生成歌词失败:', err);
     } finally {
       setIsGenerating(false);
@@ -212,7 +227,7 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
     }
 
     if (!apiKey.trim()) {
-      setRhymeError('请先设置 OpenAI API Key');
+      setRhymeError('请先设置 API Key');
       setShowApiKeyInput(true);
       return;
     }
@@ -241,29 +256,11 @@ ${excludeList}
 
 只返回JSON，不要其他解释。`;
 
-      const response = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify({
-          model: defaultOpenAIConfig.model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: `请生成100个押${selectedRhyme}韵的${wordLength}字词汇` }
-          ],
-          temperature: 0.9,
-          max_tokens: 4000,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error?.message || '生成失败');
-      }
-
-      const data = await response.json();
+      const data = await callAI(
+        systemPrompt,
+        `请生成100个押${selectedRhyme}韵的${wordLength}字词汇`,
+        4000
+      );
       const content = data.choices[0].message.content;
 
       const jsonMatch = content.match(/\{[\s\S]*\}/);
@@ -275,35 +272,30 @@ ${excludeList}
       const newWords: RhymeWord[] = result.words || [];
 
       setRhymeWords(newWords);
-      // 将新生成的词添加到排除列表
       setExcludedWords(prev => [...prev, ...newWords.map(w => w.word)]);
     } catch (err: any) {
-      setRhymeError(err.message || '生成失败，请检查API Key或网络连接');
+      setRhymeError(err.message || '生成失败，请检查 API Key 或网络连接');
       console.error('生成押韵词汇失败:', err);
     } finally {
       setIsGeneratingRhymes(false);
     }
   };
 
-  // 换一批
   const refreshRhymeWords = () => {
     generateRhymeWords();
   };
 
-  // 清空历史并重新生成
   const clearAndGenerate = () => {
     setExcludedWords([]);
     setRhymeWords([]);
     generateRhymeWords();
   };
 
-  // 按词性筛选词汇
   const getFilteredWords = () => {
     if (activePoSTab === 'all') return rhymeWords;
     return rhymeWords.filter(w => w.partOfSpeech === activePoSTab);
   };
 
-  // 拖拽开始
   const handleDragStart = (e: React.DragEvent, word: string) => {
     e.dataTransfer.setData('text/plain', word);
     e.dataTransfer.effectAllowed = 'copy';
@@ -313,162 +305,132 @@ ${excludeList}
     <div className="ai-lyrics-generator">
       <div className="generator-header">
         <h3>AI 创作助手</h3>
-        <button onClick={() => setIsCollapsed(!isCollapsed)} className="collapse-button">
-          {isCollapsed ? '展开 ▼' : '收起 ▲'}
-        </button>
+        <div className="header-buttons">
+          <button onClick={() => setShowApiKeyInput(!showApiKeyInput)} className="api-settings-btn">
+            设置
+          </button>
+          <button onClick={() => setIsCollapsed(!isCollapsed)} className="collapse-button">
+            {isCollapsed ? '展开 ▼' : '收起 ▲'}
+          </button>
+        </div>
       </div>
 
       {!isCollapsed && (
         <div className="generator-content">
+          {/* API 设置区域 */}
+          {showApiKeyInput && (
+            <div className="api-key-section">
+              <div className="api-key-row">
+                <label>API Key:</label>
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="输入你的 API Key..."
+                  className="api-key-input"
+                />
+              </div>
+              <div className="api-key-row">
+                <label>模型:</label>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => setSelectedModel(e.target.value)}
+                  className="model-select"
+                >
+                  {AVAILABLE_MODELS.map(m => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </select>
+                <button onClick={handleSaveApiSettings} className="save-api-btn">
+                  保存
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* 主 Tab 切换 */}
           <div className="main-tabs">
-            <button
-              className={`main-tab ${activeMainTab === 'lyrics' ? 'active' : ''}`}
-              onClick={() => setActiveMainTab('lyrics')}
-            >
-              AI直出歌词
-            </button>
             <button
               className={`main-tab ${activeMainTab === 'rhyme' ? 'active' : ''}`}
               onClick={() => setActiveMainTab('rhyme')}
             >
               韵脚助手
             </button>
+            <button
+              className={`main-tab ${activeMainTab === 'lyrics' ? 'active' : ''}`}
+              onClick={() => setActiveMainTab('lyrics')}
+            >
+              AI直出歌词
+            </button>
           </div>
-
-          {/* API Key 设置 */}
-          {showApiKeyInput && (
-            <div className="api-key-section">
-              <label>OpenAI API Key:</label>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="sk-..."
-                className="api-key-input"
-              />
-              <button onClick={() => {
-                saveApiKey(apiKey);
-                setShowApiKeyInput(false);
-              }} className="close-api-input">
-                完成
-              </button>
-            </div>
-          )}
-
-          {/* AI直出歌词 Tab */}
-          {activeMainTab === 'lyrics' && (
-            <div className="lyrics-tab-content">
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="请输入歌词主题、风格或具体需求，例如：&#10;- 写一段关于梦想的说唱&#10;- 快节奏的街头风格&#10;- 关于友情的慢节奏说唱"
-                className="prompt-textarea"
-                rows={4}
-                disabled={isGenerating}
-              />
-
-              {error && <div className="error-message">{error}</div>}
-
-              <div className="button-group">
-                <button
-                  onClick={generateLyrics}
-                  disabled={isGenerating}
-                  className="generate-button"
-                >
-                  {isGenerating ? '生成中...' : '生成歌词'}
-                </button>
-
-                <button onClick={useExampleData} className="example-button">
-                  使用示例
-                </button>
-
-                {!showApiKeyInput && (
-                  <button onClick={() => setShowApiKeyInput(true)} className="api-key-button">
-                    设置 API Key
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
 
           {/* 韵脚助手 Tab */}
           {activeMainTab === 'rhyme' && (
             <div className="rhyme-tab-content">
-              <div className="rhyme-controls">
-                <div className="control-row">
-                  <div className="control-item">
-                    <label>韵母 <span className="required">*</span></label>
-                    <select
-                      value={selectedRhyme}
-                      onChange={(e) => setSelectedRhyme(e.target.value)}
-                      className="rhyme-select"
-                    >
-                      <option value="">请选择韵母</option>
-                      {RHYME_OPTIONS.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="control-item">
-                    <label>字数 <span className="required">*</span></label>
-                    <select
-                      value={wordLength}
-                      onChange={(e) => setWordLength(Number(e.target.value))}
-                      className="length-select"
-                    >
-                      {[1, 2, 3, 4, 5, 6, 7].map(n => (
-                        <option key={n} value={n}>{n}字</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="control-row">
-                  <div className="control-item full-width">
-                    <label>主题（可选）</label>
-                    <input
-                      type="text"
-                      value={rhymeTheme}
-                      onChange={(e) => setRhymeTheme(e.target.value)}
-                      placeholder="如：恋爱、炫富、街头、励志..."
-                      className="theme-input"
-                    />
-                  </div>
-                </div>
-
-                <div className="rhyme-buttons">
-                  <button
-                    onClick={generateRhymeWords}
-                    disabled={isGeneratingRhymes || !selectedRhyme}
-                    className="generate-button"
+              {/* 控件一行排列 */}
+              <div className="rhyme-controls-row">
+                <div className="control-item small">
+                  <label>韵母 <span className="required">*</span></label>
+                  <select
+                    value={selectedRhyme}
+                    onChange={(e) => setSelectedRhyme(e.target.value)}
+                    className="rhyme-select"
                   >
-                    {isGeneratingRhymes ? '生成中...' : '生成押韵词汇'}
-                  </button>
-
-                  {rhymeWords.length > 0 && (
-                    <>
-                      <button onClick={refreshRhymeWords} disabled={isGeneratingRhymes} className="refresh-button">
-                        换一批
-                      </button>
-                      <button onClick={clearAndGenerate} disabled={isGeneratingRhymes} className="clear-button">
-                        清空重来
-                      </button>
-                    </>
-                  )}
-
-                  {!showApiKeyInput && (
-                    <button onClick={() => setShowApiKeyInput(true)} className="api-key-button small">
-                      设置 API Key
-                    </button>
-                  )}
+                    <option value="">选择</option>
+                    {RHYME_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
                 </div>
+
+                <div className="control-item small">
+                  <label>字数 <span className="required">*</span></label>
+                  <select
+                    value={wordLength}
+                    onChange={(e) => setWordLength(Number(e.target.value))}
+                    className="length-select"
+                  >
+                    {[1, 2, 3, 4, 5, 6, 7].map(n => (
+                      <option key={n} value={n}>{n}字</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="control-item large">
+                  <label>主题（可选）</label>
+                  <input
+                    type="text"
+                    value={rhymeTheme}
+                    onChange={(e) => setRhymeTheme(e.target.value)}
+                    placeholder="如：恋爱、炫富、街头、励志..."
+                    className="theme-input"
+                  />
+                </div>
+              </div>
+
+              <div className="rhyme-buttons">
+                <button
+                  onClick={generateRhymeWords}
+                  disabled={isGeneratingRhymes || !selectedRhyme}
+                  className="generate-button"
+                >
+                  {isGeneratingRhymes ? '生成中...' : '生成押韵词汇'}
+                </button>
+
+                {rhymeWords.length > 0 && (
+                  <>
+                    <button onClick={refreshRhymeWords} disabled={isGeneratingRhymes} className="refresh-button">
+                      换一批
+                    </button>
+                    <button onClick={clearAndGenerate} disabled={isGeneratingRhymes} className="clear-button">
+                      清空重来
+                    </button>
+                  </>
+                )}
               </div>
 
               {rhymeError && <div className="error-message">{rhymeError}</div>}
 
-              {/* 词性分类 Tab */}
               {rhymeWords.length > 0 && (
                 <div className="pos-tabs-container">
                   <div className="pos-tabs">
@@ -488,7 +450,6 @@ ${excludeList}
                     ))}
                   </div>
 
-                  {/* 词汇卡片网格 */}
                   <div className="word-cards-grid">
                     {getFilteredWords().map((item, index) => (
                       <div
@@ -520,6 +481,36 @@ ${excludeList}
                   </ul>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* AI直出歌词 Tab */}
+          {activeMainTab === 'lyrics' && (
+            <div className="lyrics-tab-content">
+              <textarea
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                placeholder="请输入歌词主题、风格或具体需求，例如：&#10;- 写一段关于梦想的说唱&#10;- 快节奏的街头风格&#10;- 关于友情的慢节奏说唱"
+                className="prompt-textarea"
+                rows={4}
+                disabled={isGenerating}
+              />
+
+              {error && <div className="error-message">{error}</div>}
+
+              <div className="button-group">
+                <button
+                  onClick={generateLyrics}
+                  disabled={isGenerating}
+                  className="generate-button"
+                >
+                  {isGenerating ? '生成中...' : '生成歌词'}
+                </button>
+
+                <button onClick={useExampleData} className="example-button">
+                  使用示例
+                </button>
+              </div>
             </div>
           )}
         </div>
