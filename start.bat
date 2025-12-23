@@ -1,17 +1,17 @@
 @echo off
 chcp 65001 >nul
 echo ========================================
-echo   AnyBeats - Rap 创作工具
+echo   AnyBeats - Rap Creator
 echo ========================================
 echo.
 
-REM 激活 conda 环境
+REM Activate conda environment
 call conda activate tool
 
-REM 检查后端数据库是否初始化
+REM Check if backend database is initialized
 if not exist "backend\rhyme_db\chroma.sqlite3" (
-    echo [提示] 首次运行，正在初始化韵脚词库...
-    echo        这可能需要几分钟，请耐心等待...
+    echo [Init] First run, initializing rhyme database...
+    echo        This may take a few minutes...
     echo.
     cd backend
     python scripts/init_db.py
@@ -19,17 +19,16 @@ if not exist "backend\rhyme_db\chroma.sqlite3" (
     echo.
 )
 
-REM 检查是否安装了 concurrently
+REM Check if dependencies are installed
 call npm list concurrently >nul 2>&1
 if errorlevel 1 (
-    echo [提示] 首次运行，正在安装依赖...
+    echo [Init] Installing dependencies...
     call npm install
     echo.
 )
 
-REM 同时启动前后端（在同一窗口）
-echo [启动] 前后端服务...
-echo        后端: http://localhost:8000
-echo        前端: http://localhost:5173
+REM Start both frontend and backend in same window
+echo [Start] Backend: http://localhost:8000
+echo [Start] Frontend: http://localhost:5173
 echo.
 npm start
