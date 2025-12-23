@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import Metronome from './components/Metronome';
-import LyricsEditor from './components/LyricsEditor';
+import LyricsEditor, { type CellData } from './components/LyricsEditor';
 import AILyricsGenerator, { type LyricData } from './components/AILyricsGenerator';
 import './App.css';
 
@@ -9,6 +9,7 @@ function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [bpm, setBpm] = useState(90);
   const [generatedLyrics, setGeneratedLyrics] = useState<LyricData | null>(null);
+  const [measures, setMeasures] = useState<CellData[][]>([]);
 
   const handleBeatChange = (beat: number) => {
     setCurrentBeat(beat);
@@ -31,6 +32,7 @@ function App() {
           <Metronome
             onBeatChange={handleBeatChange}
             onBpmChange={setBpm}
+            measures={measures}
           />
         </div>
 
@@ -44,6 +46,7 @@ function App() {
             currentBeat={currentBeat}
             isPlaying={isPlaying}
             generatedLyrics={generatedLyrics}
+            onMeasuresChange={setMeasures}
           />
         </div>
       </div>

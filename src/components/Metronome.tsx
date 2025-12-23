@@ -1,14 +1,23 @@
 import { useState, useEffect, useRef } from 'react';
 import './Metronome.css';
 
+// 从 LyricsEditor 导入 CellData 类型
+interface CellData {
+  text: string;
+  isEditing: boolean;
+  isAccented: boolean;
+}
+
 interface MetronomeProps {
   onBeatChange?: (currentBeat: number) => void;
   onBpmChange?: (bpm: number) => void;
+  measures?: CellData[][];  // 歌词数据，用于智能导唱
 }
 
-export default function Metronome({ onBeatChange, onBpmChange }: MetronomeProps) {
+export default function Metronome({ onBeatChange, onBpmChange, measures = [] }: MetronomeProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [bpm, setBpm] = useState(90);
+  const [smartGuide, setSmartGuide] = useState(false);  // 智能导唱模式
 
   // 通知父组件 BPM 变化
   useEffect(() => {
@@ -135,6 +144,58 @@ export default function Metronome({ onBeatChange, onBpmChange }: MetronomeProps)
   // 保存回调函数的引用，避免 useEffect 依赖变化
   const onBeatChangeRef = useRef(onBeatChange);
   onBeatChangeRef.current = onBeatChange;
+  // 保存 measures 引用
+  const measuresRef = useRef(measures);
+  measuresRef.current = measures;
+  // 保存 smartGuide 引用
+  const smartGuideRef = useRef(smartGuide);
+  smartGuideRef.current = smartGuide;
+  // 用于存储智能导唱的定时器
+  const subdivisionTimersRef = useRef<number[]>([]);
+
+  // 清理所有细分定时器
+  const clearSubdivisionTimers = () => {
+    subdivisionTimersRef.current.forEach(timer => clearTimeout(timer));
+    subdivisionTimersRef.current = [];
+  };
+
+  // 播放智能导唱节拍（根据字数细分）
+  const playSmartGuideBeat = (beatIndex: number, beatInterval: number) => {
+    const cellsPerMeasure = 4;
+    const measureIndex = Math.floor((beatIndex - 1) / cellsPerMeasure);
+    const cellIndex = (beatIndex - 1) % cellsPerMeasure;
+
+    const currentMeasures = measuresRef.current;
+    if (!currentMeasures[measureIndex] || !currentMeasures[measureIndex][cellIndex]) {
+      // 没有歌词数据，播放普通节拍
+      playBeat(cellIndex === 0);
+      return;
+    }
+
+    const cellText = currentMeasures[measureIndex][cellIndex].text;
+
+    if (!cellText || cellText.trim() === '') {
+      // 空格子，播放普通节拍
+      playBeat(cellIndex === 0);
+      return;
+    }
+
+    // 有文字，按字数细分
+    const chars = cellText.split('');
+    const charInterval = beatInterval / chars.length;
+
+    chars.forEach((char, index) => {
+      if (char !== ' ') {
+        // 非空拍，播放音效
+        const timer = window.setTimeout(() => {
+          // 第一个字用高音（强调），其他用低音
+          playBeat(index === 0 && cellIndex === 0);
+        }, index * charInterval);
+        subdivisionTimersRef.current.push(timer);
+      }
+      // 空拍（空格）不播放，只等待时间
+    });
+  };
 
   // 处理节拍器逻辑
   useEffect(() => {
@@ -148,8 +209,16 @@ export default function Metronome({ onBeatChange, onBpmChange }: MetronomeProps)
 
         setCurrentBeat((prev) => {
           const nextBeat = (prev + 1) % 4; // 4/4拍显示
-          const isStrongBeat = nextBeat === 0;
-          playBeat(isStrongBeat);
+
+          // 智能导唱模式
+          if (smartGuideRef.current) {
+            playSmartGuideBeat(currentBeatCount, beatInterval);
+          } else {
+            // 普通模式
+            const isStrongBeat = nextBeat === 0;
+            playBeat(isStrongBeat);
+          }
+
           return nextBeat;
         });
 
@@ -163,6 +232,7 @@ export default function Metronome({ onBeatChange, onBpmChange }: MetronomeProps)
         clearInterval(intervalRef.current);
         intervalRef.current = null;
       }
+      clearSubdivisionTimers();
       setCurrentBeat(0);
       beatCountRef.current = 0; // 重置累计计数
     }
@@ -171,6 +241,7 @@ export default function Metronome({ onBeatChange, onBpmChange }: MetronomeProps)
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
       }
+      clearSubdivisionTimers();
     };
   }, [isPlaying, bpm, soundEnabled]); // 移除 onBeatChange 依赖，使用 ref 代替
 
@@ -250,6 +321,14 @@ export default function Metronome({ onBeatChange, onBpmChange }: MetronomeProps)
             onChange={(e) => setSoundEnabled(e.target.checked)}
           />
           节拍音效
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={smartGuide}
+            onChange={(e) => setSmartGuide(e.target.checked)}
+          />
+          智能导唱
         </label>
       </div>
 

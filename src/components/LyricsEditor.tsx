@@ -13,6 +13,7 @@ interface LyricsEditorProps {
   currentBeat: number;  // 累计节拍计数
   isPlaying: boolean;
   generatedLyrics?: LyricData | null;
+  onMeasuresChange?: (measures: CellData[][]) => void;  // 通知父组件歌词变化
 }
 
 // 保存的作品数据结构
@@ -26,7 +27,7 @@ interface SavedProject {
 const STORAGE_KEY = 'anybeats_projects';
 const AUTO_SAVE_INTERVAL = 60000; // 自动保存间隔：1分钟
 
-export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }: LyricsEditorProps) {
+export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics, onMeasuresChange }: LyricsEditorProps) {
   // 二维数组：measures[measureIndex][cellIndex]
   // 每个 measure 有 4 个 cells，每个 cell 代表 1/4 拍
   const [measures, setMeasures] = useState<CellData[][]>([]);
@@ -80,6 +81,13 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
       importLyrics(generatedLyrics);
     }
   }, [generatedLyrics]);
+
+  // 通知父组件 measures 变化（用于智能导唱）
+  useEffect(() => {
+    if (onMeasuresChange && measures.length > 0) {
+      onMeasuresChange(measures);
+    }
+  }, [measures, onMeasuresChange]);
 
   // 自动保存（每分钟，仅当有项目名且有更改时）
   useEffect(() => {
