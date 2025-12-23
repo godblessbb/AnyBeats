@@ -190,16 +190,21 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
   // 拖拽事件处理
   const handleDragOver = (e: React.DragEvent, measureIndex: number, cellIndex: number) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'copy';
+    e.stopPropagation();
+    // 根据来源设置不同的 dropEffect
+    e.dataTransfer.dropEffect = isDraggingFromCell ? 'move' : 'copy';
     setDragOverCell({ measureIndex, cellIndex });
   };
 
-  const handleDragLeave = () => {
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     setDragOverCell(null);
   };
 
   const handleDrop = (e: React.DragEvent, measureIndex: number, cellIndex: number) => {
     e.preventDefault();
+    e.stopPropagation();
     const word = e.dataTransfer.getData('text/plain');
     if (word) {
       // 如果是从歌词区拖拽的，清空源格子
@@ -341,7 +346,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
                 }}
                 onDragEnd={handleCellDragEnd}
                 onDragOver={(e) => handleDragOver(e, measureIndex, cellIndex)}
-                onDragLeave={handleDragLeave}
+                onDragLeave={(e) => handleDragLeave(e)}
                 onDrop={(e) => handleDrop(e, measureIndex, cellIndex)}
               >
                 <div className="beat-marker" />
