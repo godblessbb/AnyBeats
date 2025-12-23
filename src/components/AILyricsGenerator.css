@@ -25,10 +25,10 @@
   gap: 10px;
 }
 
-.api-settings-btn {
-  padding: 8px 16px;
-  border: 2px solid #ffc107;
-  background: #ffc107;
+.model-select-header {
+  padding: 8px 12px;
+  border: 2px solid #667eea;
+  background: white;
   color: #333;
   border-radius: 8px;
   cursor: pointer;
@@ -37,9 +37,14 @@
   transition: all 0.2s;
 }
 
-.api-settings-btn:hover {
-  background: #e0a800;
-  border-color: #e0a800;
+.model-select-header:hover {
+  border-color: #764ba2;
+}
+
+.model-select-header:focus {
+  outline: none;
+  border-color: #764ba2;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.2);
 }
 
 .collapse-button {
@@ -65,64 +70,6 @@
   gap: 15px;
 }
 
-/* API Key 设置区域 */
-.api-key-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 15px;
-  background: #fff3cd;
-  border-radius: 10px;
-  border: 1px solid #ffc107;
-}
-
-.api-key-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.api-key-row label {
-  font-size: 14px;
-  font-weight: 500;
-  color: #856404;
-  white-space: nowrap;
-  min-width: 60px;
-}
-
-.api-key-input {
-  flex: 1;
-  padding: 8px 12px;
-  border: 1px solid #ffc107;
-  border-radius: 6px;
-  font-size: 14px;
-  font-family: monospace;
-}
-
-.model-select {
-  flex: 1;
-  padding: 8px 12px;
-  border: 1px solid #ffc107;
-  border-radius: 6px;
-  font-size: 14px;
-  background: white;
-}
-
-.save-api-btn {
-  padding: 8px 20px;
-  border: none;
-  background: #28a745;
-  color: white;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  font-weight: 500;
-  transition: all 0.2s;
-}
-
-.save-api-btn:hover {
-  background: #218838;
-}
 
 /* 主 Tab 切换 */
 .main-tabs {
@@ -497,20 +444,6 @@
   .refresh-button,
   .clear-button {
     width: 100%;
-  }
-
-  .api-key-section {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .api-key-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .api-key-row label {
-    min-width: auto;
   }
 
   .word-cards-grid {

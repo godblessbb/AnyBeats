@@ -1,6 +1,7 @@
 /**
  * AI API 配置文件
- * 支持 OpenAI 和 DeepSeek 模型
+ * 支持 DeepSeek 和 OpenAI 模型
+ * API Key 从环境变量读取
  */
 
 export interface AIConfig {
@@ -13,7 +14,7 @@ export interface AIConfig {
 // 支持的模型列表
 export const AVAILABLE_MODELS = [
   { value: 'deepseek-chat', label: 'DeepSeek Chat', provider: 'deepseek' },
-  { value: 'gpt-4o-mini', label: 'GPT-4o Mini', provider: 'openai' },
+  { value: 'gpt-5-nano', label: 'GPT-5 Nano', provider: 'openai' },
 ];
 
 // 模型对应的 API 端点
@@ -58,6 +59,17 @@ export const getModelProvider = (model: string): string => {
 export const getApiEndpoint = (model: string): string => {
   const provider = getModelProvider(model);
   return API_ENDPOINTS[provider] || API_ENDPOINTS['openai'];
+};
+
+/**
+ * 根据模型获取对应的 API Key（从环境变量读取）
+ */
+export const getApiKey = (model: string): string => {
+  const provider = getModelProvider(model);
+  if (provider === 'deepseek') {
+    return import.meta.env.VITE_DEEPSEEK_API_KEY || '';
+  }
+  return import.meta.env.VITE_GPT_API_KEY || '';
 };
 
 /**
@@ -116,20 +128,6 @@ export const getJsonTemplate = (bpm: number): string => {
 };
 
 /**
- * 从 localStorage 获取 API Key
- */
-export const getStoredApiKey = (): string => {
-  return localStorage.getItem('ai_api_key') || '';
-};
-
-/**
- * 保存 API Key 到 localStorage
- */
-export const saveApiKey = (key: string): void => {
-  localStorage.setItem('ai_api_key', key);
-};
-
-/**
  * 获取存储的模型选择
  */
 export const getStoredModel = (): string => {
@@ -141,11 +139,4 @@ export const getStoredModel = (): string => {
  */
 export const saveModel = (model: string): void => {
   localStorage.setItem('ai_model', model);
-};
-
-/**
- * 清除 API Key
- */
-export const clearApiKey = (): void => {
-  localStorage.removeItem('ai_api_key');
 };

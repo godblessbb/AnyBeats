@@ -3,11 +3,10 @@ import './AILyricsGenerator.css';
 import {
   defaultOpenAIConfig,
   getSystemPrompt,
-  getStoredApiKey,
-  saveApiKey,
   getStoredModel,
   saveModel,
   getApiEndpoint,
+  getApiKey,
   AVAILABLE_MODELS,
 } from '../config/openai.config';
 
@@ -85,9 +84,7 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
   const [activeMainTab, setActiveMainTab] = useState<'lyrics' | 'rhyme'>('rhyme');
 
   // 通用状态
-  const [apiKey, setApiKey] = useState(getStoredApiKey());
   const [selectedModel, setSelectedModel] = useState(getStoredModel());
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
 
   // AI直出歌词状态
@@ -105,15 +102,20 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
   const [rhymeError, setRhymeError] = useState<string | null>(null);
   const [activePoSTab, setActivePoSTab] = useState('all');
 
-  // 保存 API 设置
-  const handleSaveApiSettings = () => {
-    saveApiKey(apiKey);
-    saveModel(selectedModel);
-    setShowApiKeyInput(false);
+  // 切换模型
+  const handleModelChange = (model: string) => {
+    setSelectedModel(model);
+    saveModel(model);
   };
 
   // 调用 AI API
   const callAI = async (systemPrompt: string, userPrompt: string, maxTokens: number = 2000) => {
+    const apiKey = getApiKey(selectedModel);
+
+    if (!apiKey) {
+      throw new Error('未配置 API Key，请在 .env 文件中设置对应的 API Key');
+    }
+
     const endpoint = getApiEndpoint(selectedModel);
 
     const response = await fetch(endpoint, {
@@ -148,12 +150,6 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
       return;
     }
 
-    if (!apiKey.trim()) {
-      setError('请先设置 API Key');
-      setShowApiKeyInput(true);
-      return;
-    }
-
     setIsGenerating(true);
     setError(null);
 
@@ -176,7 +172,7 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
       onGenerate(lyricData);
       setPrompt('');
     } catch (err: any) {
-      setError(err.message || '生成失败，请检查 API Key 或网络连接');
+      setError(err.message || '生成失败，请检查 API Key 配置或网络连接');
       console.error('生成歌词失败:', err);
     } finally {
       setIsGenerating(false);
@@ -226,12 +222,6 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
       return;
     }
 
-    if (!apiKey.trim()) {
-      setRhymeError('请先设置 API Key');
-      setShowApiKeyInput(true);
-      return;
-    }
-
     setIsGeneratingRhymes(true);
     setRhymeError(null);
 
@@ -274,7 +264,7 @@ ${excludeList}
       setRhymeWords(newWords);
       setExcludedWords(prev => [...prev, ...newWords.map(w => w.word)]);
     } catch (err: any) {
-      setRhymeError(err.message || '生成失败，请检查 API Key 或网络连接');
+      setRhymeError(err.message || '生成失败，请检查 API Key 配置或网络连接');
       console.error('生成押韵词汇失败:', err);
     } finally {
       setIsGeneratingRhymes(false);
@@ -306,9 +296,15 @@ ${excludeList}
       <div className="generator-header">
         <h3>AI 创作助手</h3>
         <div className="header-buttons">
-          <button onClick={() => setShowApiKeyInput(!showApiKeyInput)} className="api-settings-btn">
-            设置
-          </button>
+          <select
+            value={selectedModel}
+            onChange={(e) => handleModelChange(e.target.value)}
+            className="model-select-header"
+          >
+            {AVAILABLE_MODELS.map(m => (
+              <option key={m.value} value={m.value}>{m.label}</option>
+            ))}
+          </select>
           <button onClick={() => setIsCollapsed(!isCollapsed)} className="collapse-button">
             {isCollapsed ? '展开 ▼' : '收起 ▲'}
           </button>
@@ -317,37 +313,6 @@ ${excludeList}
 
       {!isCollapsed && (
         <div className="generator-content">
-          {/* API 设置区域 */}
-          {showApiKeyInput && (
-            <div className="api-key-section">
-              <div className="api-key-row">
-                <label>API Key:</label>
-                <input
-                  type="password"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder="输入你的 API Key..."
-                  className="api-key-input"
-                />
-              </div>
-              <div className="api-key-row">
-                <label>模型:</label>
-                <select
-                  value={selectedModel}
-                  onChange={(e) => setSelectedModel(e.target.value)}
-                  className="model-select"
-                >
-                  {AVAILABLE_MODELS.map(m => (
-                    <option key={m.value} value={m.value}>{m.label}</option>
-                  ))}
-                </select>
-                <button onClick={handleSaveApiSettings} className="save-api-btn">
-                  保存
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* 主 Tab 切换 */}
           <div className="main-tabs">
             <button
