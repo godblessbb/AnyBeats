@@ -238,6 +238,7 @@
   height: 5px;
   background: #ccc;
   border-radius: 50%;
+  pointer-events: none; /* 防止干扰拖放事件 */
 }
 
 .beat-cell.strong-beat .beat-marker {
@@ -260,6 +261,12 @@
   width: 100%;
   height: 100%;
   gap: 2px;
+  pointer-events: none; /* 防止子元素干扰拖放事件 */
+}
+
+/* 输入框需要恢复 pointer-events */
+.cell-input {
+  pointer-events: auto;
 }
 
 .cell-text {
