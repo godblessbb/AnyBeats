@@ -52,6 +52,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
   const [selectedCell, setSelectedCell] = useState<{ measureIndex: number; cellIndex: number } | null>(null);
   const [keyboardNavMode, setKeyboardNavMode] = useState(false);  // 是否处于键盘导航模式
   const editorRef = useRef<HTMLDivElement>(null);
+  const isComposingRef = useRef(false);  // 跟踪中文输入法状态
 
   const cellsPerMeasure = 4; // 每小节 4 个格子（每格 = 1 拍）
   const measuresPerRow = 2;  // 每行 2 个小节
@@ -675,20 +676,24 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
                     className="cell-input"
                     value={cell.text}
                     onChange={(e) => updateCellText(measureIndex, cellIndex, e.target.value)}
+                    onCompositionStart={() => { isComposingRef.current = true; }}
+                    onCompositionEnd={() => { isComposingRef.current = false; }}
                     onBlur={() => {
                       // 结束编辑但保持选中状态
                       setCellEditing(measureIndex, cellIndex, false);
                     }}
                     onKeyDown={(e) => {
                       // 如果正在进行中文输入法组合，不处理
-                      if (e.nativeEvent.isComposing) return;
+                      if (isComposingRef.current) return;
 
-                      if (e.key === 'Enter') {
+                      if (e.key === 'Enter' || e.keyCode === 13) {
                         e.preventDefault();
+                        e.stopPropagation();
                         // 结束编辑，保持选中
                         setCellEditing(measureIndex, cellIndex, false);
-                      } else if (e.key === 'Escape') {
+                      } else if (e.key === 'Escape' || e.keyCode === 27) {
                         e.preventDefault();
+                        e.stopPropagation();
                         // 结束编辑，保持选中
                         setCellEditing(measureIndex, cellIndex, false);
                       }
