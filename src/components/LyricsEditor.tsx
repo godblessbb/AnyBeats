@@ -55,6 +55,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics, 
   const [keyboardNavMode, setKeyboardNavMode] = useState(false);  // 是否处于键盘导航模式
   const editorRef = useRef<HTMLDivElement>(null);
   const isComposingRef = useRef(false);  // 跟踪中文输入法状态
+  const clipboardRef = useRef<{ text: string; isAccented: boolean } | null>(null);  // 复制的内容
 
   const cellsPerMeasure = 4; // 每小节 4 个格子（每格 = 1 拍）
   const measuresPerRow = 2;  // 每行 2 个小节
@@ -155,6 +156,33 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics, 
       if ((key === 'a' || key === 'A') && keyboardNavMode && selectedCell) {
         e.preventDefault();
         toggleAccent(selectedCell.measureIndex, selectedCell.cellIndex);
+      }
+
+      // Ctrl+C 复制选中格子内容
+      if ((key === 'c' || key === 'C') && (e.ctrlKey || e.metaKey) && selectedCell) {
+        e.preventDefault();
+        const cell = measures[selectedCell.measureIndex]?.[selectedCell.cellIndex];
+        if (cell) {
+          clipboardRef.current = { text: cell.text, isAccented: cell.isAccented };
+        }
+      }
+
+      // Ctrl+V 粘贴到选中格子
+      if ((key === 'v' || key === 'V') && (e.ctrlKey || e.metaKey) && selectedCell && clipboardRef.current) {
+        e.preventDefault();
+        const { measureIndex, cellIndex } = selectedCell;
+        updateCellText(measureIndex, cellIndex, clipboardRef.current.text);
+        // 也复制重音状态
+        if (clipboardRef.current.isAccented !== measures[measureIndex]?.[cellIndex]?.isAccented) {
+          toggleAccent(measureIndex, cellIndex);
+        }
+      }
+
+      // Backspace 或 Delete 删除选中格子内容
+      if ((key === 'Backspace' || key === 'Delete') && selectedCell && !activeElement?.closest('.beat-cell input')) {
+        e.preventDefault();
+        const { measureIndex, cellIndex } = selectedCell;
+        updateCellText(measureIndex, cellIndex, '');
       }
     };
 
@@ -871,6 +899,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics, 
           <li><strong>拖拽小节编号</strong>可重新排列小节顺序</li>
           <li><strong>单击格子</strong>直接编辑，<strong>Enter保存</strong>后可用方向键导航，<strong>双击</strong>或<strong>A键</strong>切换重音</li>
           <li><strong>键盘导航：</strong>按→进入导航模式，方向键移动，Enter编辑，Esc退出导航</li>
+          <li><strong>复制粘贴：</strong>Ctrl+C复制，Ctrl+V粘贴，Backspace/Delete删除内容</li>
           <li><strong>保存/加载：</strong>已保存的作品会每分钟自动保存</li>
         </ul>
       </div>
