@@ -21,6 +21,8 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
   const [measures, setMeasures] = useState<CellData[][]>([]);
   const [measuresCount, setMeasuresCount] = useState(16); // 默认 16 个空小节
   const [dragOverCell, setDragOverCell] = useState<{ measureIndex: number; cellIndex: number } | null>(null);
+  const [dragSource, setDragSource] = useState<{ measureIndex: number; cellIndex: number } | null>(null);
+  const [isDraggingFromCell, setIsDraggingFromCell] = useState(false);
 
   const cellsPerMeasure = 4; // 每小节 4 个格子（每格 = 1 拍）
   const measuresPerRow = 2;  // 每行 2 个小节
@@ -200,9 +202,36 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
     e.preventDefault();
     const word = e.dataTransfer.getData('text/plain');
     if (word) {
+      // 如果是从歌词区拖拽的，清空源格子
+      if (dragSource && isDraggingFromCell) {
+        // 避免拖到原位置
+        if (dragSource.measureIndex === measureIndex && dragSource.cellIndex === cellIndex) {
+          setDragOverCell(null);
+          setDragSource(null);
+          setIsDraggingFromCell(false);
+          return;
+        }
+        // 清空源格子
+        updateCellText(dragSource.measureIndex, dragSource.cellIndex, '');
+      }
       updateCellText(measureIndex, cellIndex, word);
     }
     setDragOverCell(null);
+    setDragSource(null);
+    setIsDraggingFromCell(false);
+  };
+
+  // 格子内的词开始拖拽
+  const handleCellDragStart = (e: React.DragEvent, measureIndex: number, cellIndex: number, text: string) => {
+    e.dataTransfer.setData('text/plain', text);
+    e.dataTransfer.effectAllowed = 'move';
+    setDragSource({ measureIndex, cellIndex });
+    setIsDraggingFromCell(true);
+  };
+
+  const handleCellDragEnd = () => {
+    setDragSource(null);
+    setIsDraggingFromCell(false);
   };
 
   // 计算下划线数量（根据字数表示音符时值）
@@ -287,13 +316,16 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
             const displayText = formatDisplayText(cell.text);
 
             const isDragOver = dragOverCell?.measureIndex === measureIndex && dragOverCell?.cellIndex === cellIndex;
+            const isDragSourceCell = dragSource?.measureIndex === measureIndex && dragSource?.cellIndex === cellIndex;
+            const hasDraggableContent = cell.text && !isFullRest && !cell.isEditing;
 
             return (
               <div
                 key={cellIndex}
-                className={`beat-cell ${isStrongBeat ? 'strong-beat' : ''} ${isCurrentBeat ? 'playing' : ''} ${cell.text && !isFullRest ? 'has-text' : ''} ${cell.isAccented ? 'accented' : ''} ${isFullRest ? 'rest-beat' : ''} ${hasRestBeat(cell.text) && !isFullRest ? 'has-rest' : ''} ${isDragOver ? 'drag-over' : ''}`}
+                className={`beat-cell ${isStrongBeat ? 'strong-beat' : ''} ${isCurrentBeat ? 'playing' : ''} ${cell.text && !isFullRest ? 'has-text' : ''} ${cell.isAccented ? 'accented' : ''} ${isFullRest ? 'rest-beat' : ''} ${hasRestBeat(cell.text) && !isFullRest ? 'has-rest' : ''} ${isDragOver ? 'drag-over' : ''} ${isDragSourceCell ? 'drag-source' : ''}`}
+                draggable={hasDraggableContent ? true : false}
                 onClick={() => {
-                  if (!cell.isEditing) {
+                  if (!cell.isEditing && !isDraggingFromCell) {
                     setCellEditing(measureIndex, cellIndex, true);
                   }
                 }}
@@ -302,6 +334,12 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
                     toggleAccent(measureIndex, cellIndex);
                   }
                 }}
+                onDragStart={(e) => {
+                  if (hasDraggableContent) {
+                    handleCellDragStart(e, measureIndex, cellIndex, cell.text);
+                  }
+                }}
+                onDragEnd={handleCellDragEnd}
                 onDragOver={(e) => handleDragOver(e, measureIndex, cellIndex)}
                 onDragLeave={handleDragLeave}
                 onDrop={(e) => handleDrop(e, measureIndex, cellIndex)}
@@ -382,6 +420,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
         <ul>
           <li>每行2个小节，每小节4拍（4/4拍）</li>
           <li>从上方韵脚助手<strong>拖拽词汇</strong>到格子中，自动生成对应下划线</li>
+          <li><strong>格子内的词可拖拽</strong>移动到其他位置，原位置自动清空</li>
           <li>单击格子手动输入歌词，输入空格表示空拍（显示为∅）</li>
           <li>双击格子标记/取消重音（灰色背景）</li>
           <li><strong>下划线规则：</strong>1字=1/4拍无线，2字=1/8拍1线，3-4字=1/16拍2线，5-8字=1/32拍3线</li>
