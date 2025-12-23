@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import './LyricsEditor.css';
 import { type LyricData } from './AILyricsGenerator';
 
@@ -24,6 +24,7 @@ interface SavedProject {
 }
 
 const STORAGE_KEY = 'anybeats_projects';
+const AUTO_SAVE_INTERVAL = 60000; // 自动保存间隔：1分钟
 
 export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }: LyricsEditorProps) {
   // 二维数组：measures[measureIndex][cellIndex]
@@ -40,10 +41,16 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [showLoadDialog, setShowLoadDialog] = useState(false);
   const [newProjectName, setNewProjectName] = useState('');
+  const [isDirty, setIsDirty] = useState(false);  // 是否有未保存的更改
+  const [lastAutoSave, setLastAutoSave] = useState<number>(0);  // 上次自动保存时间
 
   // 小节拖拽状态
   const [dragMeasureIndex, setDragMeasureIndex] = useState<number | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
+
+  // 键盘导航状态
+  const [selectedCell, setSelectedCell] = useState<{ measureIndex: number; cellIndex: number } | null>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
 
   const cellsPerMeasure = 4; // 每小节 4 个格子（每格 = 1 拍）
   const measuresPerRow = 2;  // 每行 2 个小节
@@ -71,6 +78,117 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
       importLyrics(generatedLyrics);
     }
   }, [generatedLyrics]);
+
+  // 自动保存（每分钟，仅当有项目名且有更改时）
+  useEffect(() => {
+    if (!currentProjectName || !isDirty) return;
+
+    const timer = setInterval(() => {
+      autoSave();
+    }, AUTO_SAVE_INTERVAL);
+
+    return () => clearInterval(timer);
+  }, [currentProjectName, isDirty, measures]);
+
+  // 键盘导航
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 如果正在编辑输入框或对话框打开，不处理
+      if (showSaveDialog || showLoadDialog) return;
+      const activeElement = document.activeElement;
+      if (activeElement?.tagName === 'INPUT' || activeElement?.tagName === 'TEXTAREA') return;
+
+      const { key } = e;
+
+      // 方向键导航
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
+        e.preventDefault();
+        navigateCell(key);
+      }
+
+      // Enter 编辑选中的格子
+      if (key === 'Enter' && selectedCell) {
+        e.preventDefault();
+        setCellEditing(selectedCell.measureIndex, selectedCell.cellIndex, true);
+      }
+
+      // Escape 取消选中
+      if (key === 'Escape') {
+        setSelectedCell(null);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedCell, showSaveDialog, showLoadDialog, measuresCount]);
+
+  // 导航到相邻格子
+  const navigateCell = (direction: string) => {
+    const totalCells = measuresCount * cellsPerMeasure;
+
+    if (!selectedCell) {
+      // 没有选中时，选择第一个格子
+      setSelectedCell({ measureIndex: 0, cellIndex: 0 });
+      return;
+    }
+
+    const { measureIndex, cellIndex } = selectedCell;
+    const currentFlatIndex = measureIndex * cellsPerMeasure + cellIndex;
+    let newFlatIndex = currentFlatIndex;
+
+    switch (direction) {
+      case 'ArrowRight':
+        newFlatIndex = (currentFlatIndex + 1) % totalCells;
+        break;
+      case 'ArrowLeft':
+        newFlatIndex = (currentFlatIndex - 1 + totalCells) % totalCells;
+        break;
+      case 'ArrowDown':
+        // 下移一行（8个格子 = 2个小节）
+        newFlatIndex = (currentFlatIndex + cellsPerMeasure * measuresPerRow) % totalCells;
+        break;
+      case 'ArrowUp':
+        // 上移一行
+        newFlatIndex = (currentFlatIndex - cellsPerMeasure * measuresPerRow + totalCells) % totalCells;
+        break;
+    }
+
+    const newMeasureIndex = Math.floor(newFlatIndex / cellsPerMeasure);
+    const newCellIndex = newFlatIndex % cellsPerMeasure;
+    setSelectedCell({ measureIndex: newMeasureIndex, cellIndex: newCellIndex });
+  };
+
+  // 自动保存
+  const autoSave = useCallback(() => {
+    if (!currentProjectName || !isDirty) return;
+
+    const projectData: SavedProject = {
+      name: currentProjectName,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      measures: measures.map(m => m.map(c => ({ text: c.text, isAccented: c.isAccented }))),
+    };
+
+    try {
+      const data = localStorage.getItem(STORAGE_KEY);
+      let projects: SavedProject[] = data ? JSON.parse(data) : [];
+      const existingIndex = projects.findIndex(p => p.name === currentProjectName);
+
+      if (existingIndex >= 0) {
+        projectData.createdAt = projects[existingIndex].createdAt;
+        projects[existingIndex] = projectData;
+      } else {
+        projects.push(projectData);
+      }
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+      setIsDirty(false);
+      setLastAutoSave(Date.now());
+      console.log('自动保存成功:', currentProjectName);
+    } catch (e) {
+      console.error('自动保存失败:', e);
+    }
+  }, [currentProjectName, isDirty, measures]);
 
   // 加载项目列表
   const loadProjectList = () => {
@@ -114,6 +232,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
       setCurrentProjectName(name.trim());
       setShowSaveDialog(false);
       setNewProjectName('');
+      setIsDirty(false);  // 保存后重置脏标记
     } catch (e) {
       console.error('保存项目失败:', e);
       alert('保存失败，请重试');
@@ -134,6 +253,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
     setMeasuresCount(loadedMeasures.length);
     setCurrentProjectName(project.name);
     setShowLoadDialog(false);
+    setIsDirty(false);  // 加载后重置脏标记
   };
 
   // 删除项目
@@ -229,6 +349,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
       };
       return newMeasures;
     });
+    setIsDirty(true);  // 标记有更改
   };
 
   // 切换重音标记
@@ -244,6 +365,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
       }
       return newMeasures;
     });
+    setIsDirty(true);  // 标记有更改
   };
 
   // 设置编辑状态
@@ -492,14 +614,16 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
             const isDragOver = dragOverCell?.measureIndex === measureIndex && dragOverCell?.cellIndex === cellIndex;
             const isDragSourceCell = dragSource?.measureIndex === measureIndex && dragSource?.cellIndex === cellIndex;
             const hasDraggableContent = cell.text && !isFullRest && !cell.isEditing;
+            const isSelected = selectedCell?.measureIndex === measureIndex && selectedCell?.cellIndex === cellIndex;
 
             return (
               <div
                 key={cellIndex}
-                className={`beat-cell ${isStrongBeat ? 'strong-beat' : ''} ${isCurrentBeat ? 'playing' : ''} ${cell.text && !isFullRest ? 'has-text' : ''} ${cell.isAccented ? 'accented' : ''} ${isFullRest ? 'rest-beat' : ''} ${hasRestBeat(cell.text) && !isFullRest ? 'has-rest' : ''} ${isDragOver ? 'drag-over' : ''} ${isDragSourceCell ? 'drag-source' : ''}`}
+                className={`beat-cell ${isStrongBeat ? 'strong-beat' : ''} ${isCurrentBeat ? 'playing' : ''} ${cell.text && !isFullRest ? 'has-text' : ''} ${cell.isAccented ? 'accented' : ''} ${isFullRest ? 'rest-beat' : ''} ${hasRestBeat(cell.text) && !isFullRest ? 'has-rest' : ''} ${isDragOver ? 'drag-over' : ''} ${isDragSourceCell ? 'drag-source' : ''} ${isSelected ? 'selected' : ''}`}
                 draggable={hasDraggableContent ? true : false}
                 onClick={() => {
                   if (!cell.isEditing && !isDraggingFromCell) {
+                    setSelectedCell({ measureIndex, cellIndex });
                     setCellEditing(measureIndex, cellIndex, true);
                   }
                 }}
@@ -579,7 +703,17 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
       <div className="editor-header">
         <div className="header-title">
           <h3>歌词创作区</h3>
-          {currentProjectName && <span className="project-name">- {currentProjectName}</span>}
+          {currentProjectName && (
+            <span className="project-name">
+              - {currentProjectName}
+              {isDirty && <span className="dirty-indicator" title="有未保存的更改">*</span>}
+            </span>
+          )}
+          {lastAutoSave > 0 && (
+            <span className="auto-save-status" title={`上次自动保存: ${formatDate(lastAutoSave)}`}>
+              ✓ 已自动保存
+            </span>
+          )}
         </div>
         <div className="editor-controls">
           <button onClick={() => setShowSaveDialog(true)} className="control-btn save-btn">
@@ -678,7 +812,8 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
           <li><strong>拖拽小节编号</strong>可重新排列小节顺序</li>
           <li>单击格子手动输入歌词，输入空格表示空拍（显示为∅）</li>
           <li>双击格子标记/取消重音（灰色背景）</li>
-          <li><strong>保存/加载：</strong>点击保存按钮可保存当前作品，加载按钮可恢复之前的作品</li>
+          <li><strong>键盘导航：</strong>方向键移动选中，Enter编辑，Esc取消选中</li>
+          <li><strong>保存/加载：</strong>已保存的作品会每分钟自动保存</li>
         </ul>
       </div>
     </div>
