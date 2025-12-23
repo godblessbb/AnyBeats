@@ -50,6 +50,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
 
   // 键盘导航状态
   const [selectedCell, setSelectedCell] = useState<{ measureIndex: number; cellIndex: number } | null>(null);
+  const [keyboardNavMode, setKeyboardNavMode] = useState(false);  // 是否处于键盘导航模式
   const editorRef = useRef<HTMLDivElement>(null);
 
   const cellsPerMeasure = 4; // 每小节 4 个格子（每格 = 1 拍）
@@ -100,27 +101,49 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
 
       const { key } = e;
 
-      // 方向键导航
+      // 方向键处理
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) {
-        e.preventDefault();
-        navigateCell(key);
+        if (!keyboardNavMode) {
+          // 不在导航模式：按右键进入导航模式并选择第一个格子
+          if (key === 'ArrowRight') {
+            e.preventDefault();
+            setKeyboardNavMode(true);
+            setSelectedCell({ measureIndex: 0, cellIndex: 0 });
+          }
+          // 其他方向键保持默认行为（页面滚动）
+        } else {
+          // 在导航模式：方向键在格子间移动
+          e.preventDefault();
+          navigateCell(key);
+        }
+        return;
       }
 
       // Enter 编辑选中的格子
-      if (key === 'Enter' && selectedCell) {
+      if (key === 'Enter' && keyboardNavMode && selectedCell) {
         e.preventDefault();
         setCellEditing(selectedCell.measureIndex, selectedCell.cellIndex, true);
       }
 
-      // Escape 取消选中
+      // Escape 退出导航模式
       if (key === 'Escape') {
-        setSelectedCell(null);
+        if (keyboardNavMode) {
+          e.preventDefault();
+          setKeyboardNavMode(false);
+          setSelectedCell(null);
+        }
+      }
+
+      // A 键切换重音（在导航模式下）
+      if ((key === 'a' || key === 'A') && keyboardNavMode && selectedCell) {
+        e.preventDefault();
+        toggleAccent(selectedCell.measureIndex, selectedCell.cellIndex);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [selectedCell, showSaveDialog, showLoadDialog, measuresCount]);
+  }, [selectedCell, keyboardNavMode, showSaveDialog, showLoadDialog, measuresCount]);
 
   // 导航到相邻格子
   const navigateCell = (direction: string) => {
@@ -623,13 +646,17 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
                 draggable={hasDraggableContent ? true : false}
                 onClick={() => {
                   if (!cell.isEditing && !isDraggingFromCell) {
+                    // 单击只选中格子，进入导航模式
+                    setKeyboardNavMode(true);
                     setSelectedCell({ measureIndex, cellIndex });
-                    setCellEditing(measureIndex, cellIndex, true);
                   }
                 }}
                 onDoubleClick={() => {
-                  if (cell.text && !cell.isEditing) {
-                    toggleAccent(measureIndex, cellIndex);
+                  if (!cell.isEditing) {
+                    // 双击进入编辑模式
+                    setKeyboardNavMode(true);
+                    setSelectedCell({ measureIndex, cellIndex });
+                    setCellEditing(measureIndex, cellIndex, true);
                   }
                 }}
                 onDragStart={(e) => {
@@ -649,9 +676,18 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
                     className="cell-input"
                     value={cell.text}
                     onChange={(e) => updateCellText(measureIndex, cellIndex, e.target.value)}
-                    onBlur={() => setCellEditing(measureIndex, cellIndex, false)}
+                    onBlur={() => {
+                      // 结束编辑但保持选中状态
+                      setCellEditing(measureIndex, cellIndex, false);
+                    }}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === 'Escape') {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        // 结束编辑，保持选中
+                        setCellEditing(measureIndex, cellIndex, false);
+                      } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        // 结束编辑，保持选中
                         setCellEditing(measureIndex, cellIndex, false);
                       }
                     }}
@@ -810,9 +846,8 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
           <li>从上方韵脚助手<strong>拖拽词汇</strong>到格子中，自动生成对应下划线</li>
           <li><strong>格子内的词可拖拽</strong>移动到其他位置，原位置自动清空</li>
           <li><strong>拖拽小节编号</strong>可重新排列小节顺序</li>
-          <li>单击格子手动输入歌词，输入空格表示空拍（显示为∅）</li>
-          <li>双击格子标记/取消重音（灰色背景）</li>
-          <li><strong>键盘导航：</strong>方向键移动选中，Enter编辑，Esc取消选中</li>
+          <li><strong>单击格子</strong>选中，<strong>双击</strong>或按<strong>Enter</strong>编辑，输入空格表示空拍（显示为∅）</li>
+          <li><strong>键盘导航：</strong>按→进入导航模式，方向键移动选中，A键切换重音，Esc退出导航</li>
           <li><strong>保存/加载：</strong>已保存的作品会每分钟自动保存</li>
         </ul>
       </div>
