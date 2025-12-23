@@ -19,7 +19,6 @@ export default function Metronome({ onBeatChange, onBpmChange, measures = [], se
   const [isPlaying, setIsPlaying] = useState(false);
   const [bpm, setBpm] = useState(90);
   const [smartGuide, setSmartGuide] = useState(false);  // 智能导唱模式
-  const [startFromSelection, setStartFromSelection] = useState(false);  // 从选中位置开始
 
   // 通知父组件 BPM 变化
   useEffect(() => {
@@ -155,9 +154,6 @@ export default function Metronome({ onBeatChange, onBpmChange, measures = [], se
   // 保存 selectedCell 引用
   const selectedCellRef = useRef(selectedCell);
   selectedCellRef.current = selectedCell;
-  // 保存 startFromSelection 引用
-  const startFromSelectionRef = useRef(startFromSelection);
-  startFromSelectionRef.current = startFromSelection;
   // 用于存储智能导唱的定时器
   const subdivisionTimersRef = useRef<number[]>([]);
 
@@ -221,18 +217,12 @@ export default function Metronome({ onBeatChange, onBpmChange, measures = [], se
       const beatInterval = 60000 / bpm; // 转换为毫秒
       const cellsPerMeasure = 4;
 
-      // 如果启用了从选中位置开始，且有选中的格子，设置初始节拍位置
-      if (startFromSelectionRef.current && selectedCellRef.current && smartGuideRef.current) {
+      // 如果有选中的格子且开启了智能导唱，从选中位置开始
+      if (selectedCellRef.current && smartGuideRef.current) {
         const { measureIndex, cellIndex } = selectedCellRef.current;
         const startBeat = measureIndex * cellsPerMeasure + cellIndex;
-        beatCountRef.current = startBeat;
+        beatCountRef.current = startBeat;  // 设置起始位置，interval 会从这里开始
         setCurrentBeat(cellIndex);
-
-        // 立即播放第一个节拍
-        playSmartGuideBeat(startBeat + 1, beatInterval);
-        if (onBeatChangeRef.current) {
-          onBeatChangeRef.current(startBeat + 1);
-        }
       }
 
       intervalRef.current = window.setInterval(() => {
@@ -362,15 +352,6 @@ export default function Metronome({ onBeatChange, onBpmChange, measures = [], se
             onChange={(e) => setSmartGuide(e.target.checked)}
           />
           智能导唱
-        </label>
-        <label title="需要先在歌词区选中一个格子，并开启智能导唱">
-          <input
-            type="checkbox"
-            checked={startFromSelection}
-            onChange={(e) => setStartFromSelection(e.target.checked)}
-            disabled={!smartGuide}
-          />
-          从选中位置开始
         </label>
       </div>
 
