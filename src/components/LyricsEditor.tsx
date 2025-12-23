@@ -680,6 +680,9 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
                       setCellEditing(measureIndex, cellIndex, false);
                     }}
                     onKeyDown={(e) => {
+                      // 如果正在进行中文输入法组合，不处理
+                      if (e.nativeEvent.isComposing) return;
+
                       if (e.key === 'Enter') {
                         e.preventDefault();
                         // 结束编辑，保持选中
