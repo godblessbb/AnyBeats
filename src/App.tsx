@@ -10,6 +10,7 @@ function App() {
   const [bpm, setBpm] = useState(90);
   const [generatedLyrics, setGeneratedLyrics] = useState<LyricData | null>(null);
   const [measures, setMeasures] = useState<CellData[][]>([]);
+  const [selectedCell, setSelectedCell] = useState<{ measureIndex: number; cellIndex: number } | null>(null);
 
   const handleBeatChange = (beat: number) => {
     setCurrentBeat(beat);
@@ -33,6 +34,7 @@ function App() {
             onBeatChange={handleBeatChange}
             onBpmChange={setBpm}
             measures={measures}
+            selectedCell={selectedCell}
           />
         </div>
 
@@ -47,6 +49,7 @@ function App() {
             isPlaying={isPlaying}
             generatedLyrics={generatedLyrics}
             onMeasuresChange={setMeasures}
+            onSelectedCellChange={setSelectedCell}
           />
         </div>
       </div>

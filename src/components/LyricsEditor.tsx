@@ -14,6 +14,7 @@ interface LyricsEditorProps {
   isPlaying: boolean;
   generatedLyrics?: LyricData | null;
   onMeasuresChange?: (measures: CellData[][]) => void;  // 通知父组件歌词变化
+  onSelectedCellChange?: (cell: { measureIndex: number; cellIndex: number } | null) => void;  // 通知选中的格子
 }
 
 // 保存的作品数据结构
@@ -27,7 +28,7 @@ interface SavedProject {
 const STORAGE_KEY = 'anybeats_projects';
 const AUTO_SAVE_INTERVAL = 60000; // 自动保存间隔：1分钟
 
-export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics, onMeasuresChange }: LyricsEditorProps) {
+export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics, onMeasuresChange, onSelectedCellChange }: LyricsEditorProps) {
   // 二维数组：measures[measureIndex][cellIndex]
   // 每个 measure 有 4 个 cells，每个 cell 代表 1/4 拍
   const [measures, setMeasures] = useState<CellData[][]>([]);
@@ -88,6 +89,13 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics, 
       onMeasuresChange(measures);
     }
   }, [measures, onMeasuresChange]);
+
+  // 通知父组件选中格子变化（用于从选中位置开始播放）
+  useEffect(() => {
+    if (onSelectedCellChange) {
+      onSelectedCellChange(selectedCell);
+    }
+  }, [selectedCell, onSelectedCellChange]);
 
   // 自动保存（每分钟，仅当有项目名且有更改时）
   useEffect(() => {
