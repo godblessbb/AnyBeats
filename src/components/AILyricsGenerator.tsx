@@ -259,7 +259,17 @@ ${excludeList}
       }
 
       const result = JSON.parse(jsonMatch[0]);
-      const newWords: RhymeWord[] = result.words || [];
+      const rawWords: RhymeWord[] = result.words || [];
+
+      // 去重：过滤掉重复的词汇
+      const seenWords = new Set<string>();
+      const newWords: RhymeWord[] = rawWords.filter(w => {
+        if (seenWords.has(w.word)) {
+          return false;
+        }
+        seenWords.add(w.word);
+        return true;
+      });
 
       setRhymeWords(newWords);
       setExcludedWords(prev => [...prev, ...newWords.map(w => w.word)]);
