@@ -646,17 +646,16 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
                 draggable={hasDraggableContent ? true : false}
                 onClick={() => {
                   if (!cell.isEditing && !isDraggingFromCell) {
-                    // 单击只选中格子，进入导航模式
-                    setKeyboardNavMode(true);
-                    setSelectedCell({ measureIndex, cellIndex });
-                  }
-                }}
-                onDoubleClick={() => {
-                  if (!cell.isEditing) {
-                    // 双击进入编辑模式
+                    // 单击进入编辑模式，同时激活导航模式
                     setKeyboardNavMode(true);
                     setSelectedCell({ measureIndex, cellIndex });
                     setCellEditing(measureIndex, cellIndex, true);
+                  }
+                }}
+                onDoubleClick={() => {
+                  if (cell.text && !cell.isEditing) {
+                    // 双击切换重音
+                    toggleAccent(measureIndex, cellIndex);
                   }
                 }}
                 onDragStart={(e) => {
@@ -846,8 +845,8 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
           <li>从上方韵脚助手<strong>拖拽词汇</strong>到格子中，自动生成对应下划线</li>
           <li><strong>格子内的词可拖拽</strong>移动到其他位置，原位置自动清空</li>
           <li><strong>拖拽小节编号</strong>可重新排列小节顺序</li>
-          <li><strong>单击格子</strong>选中，<strong>双击</strong>或按<strong>Enter</strong>编辑，输入空格表示空拍（显示为∅）</li>
-          <li><strong>键盘导航：</strong>按→进入导航模式，方向键移动选中，A键切换重音，Esc退出导航</li>
+          <li><strong>单击格子</strong>直接编辑，<strong>Enter保存</strong>后可用方向键导航，<strong>双击</strong>或<strong>A键</strong>切换重音</li>
+          <li><strong>键盘导航：</strong>按→进入导航模式，方向键移动，Enter编辑，Esc退出导航</li>
           <li><strong>保存/加载：</strong>已保存的作品会每分钟自动保存</li>
         </ul>
       </div>
