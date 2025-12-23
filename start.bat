@@ -19,16 +19,17 @@ if not exist "backend\rhyme_db\chroma.sqlite3" (
     echo.
 )
 
-REM 启动后端（新窗口）
-echo [1/2] 启动韵脚后端服务...
-start "AnyBeats Backend" cmd /k "cd backend && python -m uvicorn app:app --host 0.0.0.0 --port 8000"
+REM 检查是否安装了 concurrently
+call npm list concurrently >nul 2>&1
+if errorlevel 1 (
+    echo [提示] 首次运行，正在安装依赖...
+    call npm install
+    echo.
+)
 
-REM 等待后端启动
-timeout /t 3 /nobreak >nul
-
-REM 启动前端
-echo [2/2] 启动前端开发服务器...
+REM 同时启动前后端（在同一窗口）
+echo [启动] 前后端服务...
+echo        后端: http://localhost:8000
+echo        前端: http://localhost:5173
 echo.
-npm run dev
-
-pause
+npm start
