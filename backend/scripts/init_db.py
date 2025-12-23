@@ -278,6 +278,7 @@ def init_database():
     print("=" * 50)
 
     # 保存统计信息
+    os.makedirs(DATA_PATH, exist_ok=True)
     stats = {
         'total_words': len(word_data),
         'rhyme_stats': dict(rhyme_stats),
