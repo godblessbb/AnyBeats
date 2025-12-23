@@ -30,6 +30,8 @@ export interface LyricItem {
 
 export interface RhymeWord {
   word: string;
+  tone: number;  // 声调 1-5
+  toneCat: string;  // 平/仄/轻
   partOfSpeech: string;
 }
 
@@ -37,6 +39,17 @@ interface AILyricsGeneratorProps {
   onGenerate: (data: LyricData) => void;
   currentBpm: number;
 }
+
+// 声调筛选选项
+const TONE_OPTIONS = [
+  { value: '', label: '不限' },
+  { value: '平', label: '平声 (1,2声)' },
+  { value: '仄', label: '仄声 (3,4声)' },
+  { value: '1', label: '1声' },
+  { value: '2', label: '2声' },
+  { value: '3', label: '3声' },
+  { value: '4', label: '4声' },
+];
 
 // 常用韵母列表
 const RHYME_OPTIONS = [
@@ -99,6 +112,7 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
   // 韵脚助手状态
   const [selectedRhyme, setSelectedRhyme] = useState('');
   const [wordLength, setWordLength] = useState<number>(2);
+  const [selectedTone, setSelectedTone] = useState('');  // 声调筛选
   const [rhymeTheme, setRhymeTheme] = useState('');
   const [rhymeWords, setRhymeWords] = useState<RhymeWord[]>([]);
   const [isGeneratingRhymes, setIsGeneratingRhymes] = useState(false);
@@ -246,18 +260,30 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
     setRhymeError(null);
 
     try {
+      // 构建请求参数
+      const requestBody: any = {
+        rhyme: selectedRhyme,
+        word_length: wordLength,
+        theme: rhymeTheme || null,
+        limit: 100,
+      };
+
+      // 添加声调筛选
+      if (selectedTone) {
+        if (selectedTone === '平' || selectedTone === '仄') {
+          requestBody.tone_cat = selectedTone;
+        } else {
+          requestBody.tone = parseInt(selectedTone);
+        }
+      }
+
       // 调用后端API
       const response = await fetch(RHYME_API.search, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          rhyme: selectedRhyme,
-          word_length: wordLength,
-          theme: rhymeTheme || null,
-          limit: 100,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -270,6 +296,8 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
       // 转换格式
       const newWords: RhymeWord[] = data.words.map((w: any) => ({
         word: w.word,
+        tone: w.tone || 0,
+        toneCat: w.tone_cat || '',
         partOfSpeech: w.part_of_speech || '其他',
       }));
 
@@ -385,6 +413,19 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
                   </select>
                 </div>
 
+                <div className="control-item small">
+                  <label>声调</label>
+                  <select
+                    value={selectedTone}
+                    onChange={(e) => setSelectedTone(e.target.value)}
+                    className="tone-select"
+                  >
+                    {TONE_OPTIONS.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+
                 <div className="control-item large">
                   <label>主题（可选，语义搜索）</label>
                   <input
@@ -443,12 +484,16 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
                     {getFilteredWords().map((item, index) => (
                       <div
                         key={`${item.word}-${index}`}
-                        className="word-card"
+                        className={`word-card tone-${item.toneCat}`}
                         draggable
                         onDragStart={(e) => handleDragStart(e, item.word)}
+                        title={`${item.tone}声 (${item.toneCat})`}
                       >
                         <span className="word-text">{item.word}</span>
-                        <span className="word-pos">{item.partOfSpeech}</span>
+                        <div className="word-meta">
+                          <span className="word-tone">{item.tone}声</span>
+                          <span className="word-pos">{item.partOfSpeech}</span>
+                        </div>
                       </div>
                     ))}
                   </div>

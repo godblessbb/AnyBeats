@@ -35,12 +35,16 @@ class RhymeRequest(BaseModel):
     rhyme: str  # 韵母，如 "a", "an", "ang"
     word_length: int = 2  # 字数
     theme: Optional[str] = None  # 主题（可选）
+    tone: Optional[int] = None  # 声调筛选: 1,2,3,4,5(轻声)
+    tone_cat: Optional[str] = None  # 声调分类筛选: "平"(1,2声), "仄"(3,4声)
     limit: int = 100  # 返回数量
 
 
 class RhymeWord(BaseModel):
     word: str
     pinyin: str
+    tone: int  # 声调
+    tone_cat: str  # 平/仄/轻
     part_of_speech: str
 
 
@@ -103,12 +107,18 @@ async def search_rhyme(request: RhymeRequest):
         raise HTTPException(status_code=503, detail="模型未加载")
 
     # 构建查询条件
-    where_filter = {
-        "$and": [
-            {"rhyme": {"$eq": request.rhyme}},
-            {"length": {"$eq": request.word_length}}
-        ]
-    }
+    conditions = [
+        {"rhyme": {"$eq": request.rhyme}},
+        {"length": {"$eq": request.word_length}}
+    ]
+
+    # 添加声调筛选条件
+    if request.tone is not None:
+        conditions.append({"tone": {"$eq": request.tone}})
+    elif request.tone_cat:
+        conditions.append({"tone_cat": {"$eq": request.tone_cat}})
+
+    where_filter = {"$and": conditions}
 
     # 如果有主题，使用语义搜索
     if request.theme and request.theme.strip():
@@ -133,6 +143,15 @@ async def search_rhyme(request: RhymeRequest):
     # 解析结果
     words = []
 
+    def parse_word(word: str, metadata: dict) -> RhymeWord:
+        return RhymeWord(
+            word=word,
+            pinyin=metadata.get("pinyin", ""),
+            tone=metadata.get("tone", 0),
+            tone_cat=metadata.get("tone_cat", ""),
+            part_of_speech=metadata.get("pos", "其他")
+        )
+
     if request.theme and request.theme.strip():
         # query返回的结果格式
         if results["ids"] and len(results["ids"]) > 0:
@@ -143,24 +162,14 @@ async def search_rhyme(request: RhymeRequest):
             for i, word_id in enumerate(ids):
                 metadata = metadatas[i] if i < len(metadatas) else {}
                 word = documents[i] if i < len(documents) else ""
-
-                words.append(RhymeWord(
-                    word=word,
-                    pinyin=metadata.get("pinyin", ""),
-                    part_of_speech=metadata.get("pos", "其他")
-                ))
+                words.append(parse_word(word, metadata))
     else:
         # get返回的结果格式
         if results["ids"]:
             for i, word_id in enumerate(results["ids"]):
                 metadata = results["metadatas"][i] if results["metadatas"] else {}
                 word = results["documents"][i] if results["documents"] else ""
-
-                words.append(RhymeWord(
-                    word=word,
-                    pinyin=metadata.get("pinyin", ""),
-                    part_of_speech=metadata.get("pos", "其他")
-                ))
+                words.append(parse_word(word, metadata))
 
     return RhymeResponse(words=words, total=len(words))
 

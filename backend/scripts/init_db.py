@@ -85,6 +85,31 @@ def get_rhyme(word: str) -> str:
     return ""
 
 
+def get_tone(word: str) -> int:
+    """获取词语最后一个字的声调（1-4，轻声为5）"""
+    try:
+        py = pinyin(word[-1], style=Style.TONE3, strict=False)
+        if py and py[0]:
+            tone_str = py[0][0]
+            # 提取最后的数字作为声调
+            if tone_str and tone_str[-1].isdigit():
+                return int(tone_str[-1])
+            # 没有声调标记的是轻声
+            return 5
+    except:
+        pass
+    return 0
+
+
+def get_tone_category(tone: int) -> str:
+    """获取声调分类：平声(1,2) 或 仄声(3,4)"""
+    if tone in [1, 2]:
+        return "平"
+    elif tone in [3, 4]:
+        return "仄"
+    return "轻"
+
+
 def get_pinyin_str(word: str) -> str:
     """获取词语的完整拼音"""
     try:
@@ -159,17 +184,20 @@ def init_database():
     all_words.update(custom_words)
     print(f"总共 {len(all_words)} 个词汇")
 
-    # 2. 处理词汇，提取拼音和韵母
-    print("\n[2/4] 处理拼音和韵母...")
+    # 2. 处理词汇，提取拼音、韵母、声调
+    print("\n[2/4] 处理拼音、韵母、声调...")
     word_data = []
 
     for word in tqdm(all_words, desc="处理词汇"):
         rhyme = get_rhyme(word)
         if rhyme:  # 只保留能识别韵母的词
+            tone = get_tone(word)
             word_data.append({
                 'word': word,
                 'pinyin': get_pinyin_str(word),
                 'rhyme': rhyme,
+                'tone': tone,  # 声调: 1,2,3,4,5(轻声)
+                'tone_cat': get_tone_category(tone),  # 平/仄/轻
                 'length': len(word),
                 'pos': get_pos(word)
             })
@@ -178,11 +206,18 @@ def init_database():
 
     # 按韵母统计
     rhyme_stats = defaultdict(int)
+    tone_stats = defaultdict(int)
     for w in word_data:
         rhyme_stats[w['rhyme']] += 1
-    print("\n韵母分布:")
+        tone_stats[w['tone']] += 1
+
+    print("\n韵母分布 (Top 15):")
     for rhyme, count in sorted(rhyme_stats.items(), key=lambda x: -x[1])[:15]:
         print(f"  {rhyme}: {count}")
+
+    print("\n声调分布:")
+    for tone in [1, 2, 3, 4, 5]:
+        print(f"  {tone}声: {tone_stats.get(tone, 0)}")
 
     # 3. 生成词向量
     print("\n[3/4] 生成词向量（首次运行需下载模型，约400MB）...")
@@ -229,6 +264,8 @@ def init_database():
             metadatas=[{
                 'pinyin': w['pinyin'],
                 'rhyme': w['rhyme'],
+                'tone': w['tone'],  # 声调 1-5
+                'tone_cat': w['tone_cat'],  # 平/仄/轻
                 'length': w['length'],
                 'pos': w['pos']
             } for w in batch_data]
@@ -243,7 +280,8 @@ def init_database():
     # 保存统计信息
     stats = {
         'total_words': len(word_data),
-        'rhyme_stats': dict(rhyme_stats)
+        'rhyme_stats': dict(rhyme_stats),
+        'tone_stats': dict(tone_stats)
     }
     with open(os.path.join(DATA_PATH, 'stats.json'), 'w', encoding='utf-8') as f:
         json.dump(stats, f, ensure_ascii=False, indent=2)
