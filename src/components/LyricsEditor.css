@@ -109,7 +109,47 @@
   justify-content: center;
   font-size: 16px;
   font-weight: bold;
-  flex-shrink: 0;
+  cursor: grab;
+  transition: all 0.2s;
+}
+
+.measure-number:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.measure-number:active {
+  cursor: grabbing;
+}
+
+/* 小节拖拽状态 */
+.measure.measure-dragging {
+  opacity: 0.5;
+}
+
+.measure.measure-dragging .measure-number {
+  background: linear-gradient(135deg, #a0a0a0 0%, #808080 100%);
+}
+
+.measure.measure-drop-target {
+  position: relative;
+}
+
+.measure.measure-drop-target::before {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 2px;
+  animation: pulse-border 0.8s ease-in-out infinite;
+}
+
+@keyframes pulse-border {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .measure-grid {
@@ -405,4 +445,184 @@
   .beat-cell {
     min-height: 70px;
   }
+}
+
+/* 标题区域 */
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-name {
+  color: #667eea;
+  font-size: 16px;
+  font-weight: 500;
+}
+
+/* 保存/加载按钮 */
+.save-btn {
+  background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
+  color: white;
+}
+
+.save-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(17, 153, 142, 0.4);
+}
+
+.load-btn {
+  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  color: white;
+}
+
+.load-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(245, 87, 108, 0.4);
+}
+
+/* 对话框样式 */
+.dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.dialog {
+  background: white;
+  border-radius: 16px;
+  padding: 24px;
+  min-width: 300px;
+  max-width: 90vw;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.dialog-wide {
+  min-width: 400px;
+}
+
+.dialog h4 {
+  margin: 0 0 16px 0;
+  font-size: 20px;
+  color: #333;
+}
+
+.dialog-input {
+  width: 100%;
+  padding: 12px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 16px;
+  margin-bottom: 16px;
+  box-sizing: border-box;
+  transition: border-color 0.2s;
+}
+
+.dialog-input:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.dialog-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.btn-primary {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary {
+  padding: 10px 20px;
+  background: #f0f0f0;
+  color: #666;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  background: #e0e0e0;
+}
+
+/* 项目列表 */
+.project-list {
+  max-height: 300px;
+  overflow-y: auto;
+  margin-bottom: 16px;
+}
+
+.project-item {
+  display: flex;
+  align-items: center;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  background: #f8f9fa;
+  transition: all 0.2s;
+}
+
+.project-item:hover {
+  background: #e8f4ff;
+}
+
+.project-info {
+  flex: 1;
+  cursor: pointer;
+}
+
+.project-title {
+  display: block;
+  font-weight: 500;
+  color: #333;
+  margin-bottom: 4px;
+}
+
+.project-date {
+  display: block;
+  font-size: 12px;
+  color: #999;
+}
+
+.project-delete {
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+}
+
+.project-delete:hover {
+  opacity: 1;
+}
+
+.no-projects {
+  text-align: center;
+  color: #999;
+  padding: 20px;
 }

@@ -6,11 +6,12 @@ AnyBeats 韵脚助手后端
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 import chromadb
 from chromadb.config import Settings
 from sentence_transformers import SentenceTransformer
 import os
+import random
 
 app = FastAPI(title="AnyBeats Rhyme API", version="1.0.0")
 
@@ -37,6 +38,8 @@ class RhymeRequest(BaseModel):
     theme: Optional[str] = None  # 主题（可选）
     tone: Optional[int] = None  # 声调筛选: 1,2,3,4,5(轻声)
     tone_cat: Optional[str] = None  # 声调分类筛选: "平"(1,2声), "仄"(3,4声)
+    exclude: Optional[List[str]] = None  # 排除的词汇列表
+    shuffle: bool = False  # 是否随机打乱结果
     limit: int = 100  # 返回数量
 
 
@@ -120,6 +123,10 @@ async def search_rhyme(request: RhymeRequest):
 
     where_filter = {"$and": conditions}
 
+    # 计算需要查询的数量（排除词数量 + 需要返回的数量）
+    exclude_count = len(request.exclude) if request.exclude else 0
+    query_limit = request.limit + exclude_count + 100  # 多取一些以应对排除
+
     # 如果有主题，使用语义搜索
     if request.theme and request.theme.strip():
         # 将主题转换为向量
@@ -129,16 +136,19 @@ async def search_rhyme(request: RhymeRequest):
         results = collection.query(
             query_embeddings=[theme_embedding],
             where=where_filter,
-            n_results=min(request.limit, 500),
+            n_results=min(query_limit, 1000),
             include=["metadatas", "documents"]
         )
     else:
         # 无主题时，直接按条件查询
         results = collection.get(
             where=where_filter,
-            limit=request.limit,
+            limit=query_limit,
             include=["metadatas", "documents"]
         )
+
+    # 构建排除词集合
+    exclude_set = set(request.exclude) if request.exclude else set()
 
     # 解析结果
     words = []
@@ -162,14 +172,25 @@ async def search_rhyme(request: RhymeRequest):
             for i, word_id in enumerate(ids):
                 metadata = metadatas[i] if i < len(metadatas) else {}
                 word = documents[i] if i < len(documents) else ""
-                words.append(parse_word(word, metadata))
+                # 排除已显示的词
+                if word not in exclude_set:
+                    words.append(parse_word(word, metadata))
     else:
         # get返回的结果格式
         if results["ids"]:
             for i, word_id in enumerate(results["ids"]):
                 metadata = results["metadatas"][i] if results["metadatas"] else {}
                 word = results["documents"][i] if results["documents"] else ""
-                words.append(parse_word(word, metadata))
+                # 排除已显示的词
+                if word not in exclude_set:
+                    words.append(parse_word(word, metadata))
+
+    # 如果需要随机打乱
+    if request.shuffle and words:
+        random.shuffle(words)
+
+    # 限制返回数量
+    words = words[:request.limit]
 
     return RhymeResponse(words=words, total=len(words))
 

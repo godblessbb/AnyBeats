@@ -115,6 +115,7 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
   const [selectedTone, setSelectedTone] = useState('');  // 声调筛选
   const [rhymeTheme, setRhymeTheme] = useState('');
   const [rhymeWords, setRhymeWords] = useState<RhymeWord[]>([]);
+  const [shownWords, setShownWords] = useState<Set<string>>(new Set());  // 已显示过的词汇
   const [isGeneratingRhymes, setIsGeneratingRhymes] = useState(false);
   const [rhymeError, setRhymeError] = useState<string | null>(null);
   const [activePoSTab, setActivePoSTab] = useState('all');
@@ -250,7 +251,7 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
   };
 
   // 韵脚助手：使用后端API生成押韵词汇
-  const generateRhymeWords = async () => {
+  const generateRhymeWords = async (excludeWords?: string[]) => {
     if (!selectedRhyme) {
       setRhymeError('请选择韵母');
       return;
@@ -266,7 +267,13 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
         word_length: wordLength,
         theme: rhymeTheme || null,
         limit: 100,
+        shuffle: true,  // 随机打乱结果
       };
+
+      // 添加排除词汇
+      if (excludeWords && excludeWords.length > 0) {
+        requestBody.exclude = excludeWords;
+      }
 
       // 添加声调筛选
       if (selectedTone) {
@@ -301,6 +308,13 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
         partOfSpeech: w.part_of_speech || '其他',
       }));
 
+      // 更新已显示词汇集合
+      setShownWords(prev => {
+        const updated = new Set(prev);
+        newWords.forEach(w => updated.add(w.word));
+        return updated;
+      });
+
       setRhymeWords(newWords);
     } catch (err: any) {
       // 检查是否是后端未启动
@@ -315,12 +329,17 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
     }
   };
 
+  // 换一批：排除当前已显示的词汇
   const refreshRhymeWords = () => {
-    generateRhymeWords();
+    const currentWords = rhymeWords.map(w => w.word);
+    const allShown = Array.from(shownWords);
+    generateRhymeWords([...new Set([...currentWords, ...allShown])]);
   };
 
+  // 清空重来：重置已显示记录
   const clearAndGenerate = () => {
     setRhymeWords([]);
+    setShownWords(new Set());
     generateRhymeWords();
   };
 

@@ -15,6 +15,16 @@ interface LyricsEditorProps {
   generatedLyrics?: LyricData | null;
 }
 
+// 保存的作品数据结构
+interface SavedProject {
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  measures: { text: string; isAccented: boolean }[][];
+}
+
+const STORAGE_KEY = 'anybeats_projects';
+
 export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }: LyricsEditorProps) {
   // 二维数组：measures[measureIndex][cellIndex]
   // 每个 measure 有 4 个 cells，每个 cell 代表 1/4 拍
@@ -23,6 +33,17 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
   const [dragOverCell, setDragOverCell] = useState<{ measureIndex: number; cellIndex: number } | null>(null);
   const [dragSource, setDragSource] = useState<{ measureIndex: number; cellIndex: number } | null>(null);
   const [isDraggingFromCell, setIsDraggingFromCell] = useState(false);
+
+  // 保存/加载相关状态
+  const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
+  const [currentProjectName, setCurrentProjectName] = useState<string>('');
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showLoadDialog, setShowLoadDialog] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+
+  // 小节拖拽状态
+  const [dragMeasureIndex, setDragMeasureIndex] = useState<number | null>(null);
+  const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
 
   const cellsPerMeasure = 4; // 每小节 4 个格子（每格 = 1 拍）
   const measuresPerRow = 2;  // 每行 2 个小节
@@ -39,12 +60,101 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
     setMeasures(initialMeasures);
   }, []);
 
+  // 加载已保存的项目列表
+  useEffect(() => {
+    loadProjectList();
+  }, []);
+
   // 监听生成的歌词并自动导入
   useEffect(() => {
     if (generatedLyrics) {
       importLyrics(generatedLyrics);
     }
   }, [generatedLyrics]);
+
+  // 加载项目列表
+  const loadProjectList = () => {
+    try {
+      const data = localStorage.getItem(STORAGE_KEY);
+      if (data) {
+        const projects: SavedProject[] = JSON.parse(data);
+        setSavedProjects(projects.sort((a, b) => b.updatedAt - a.updatedAt));
+      }
+    } catch (e) {
+      console.error('加载项目列表失败:', e);
+    }
+  };
+
+  // 保存当前项目
+  const saveProject = (name: string) => {
+    if (!name.trim()) return;
+
+    const projectData: SavedProject = {
+      name: name.trim(),
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      measures: measures.map(m => m.map(c => ({ text: c.text, isAccented: c.isAccented }))),
+    };
+
+    try {
+      const data = localStorage.getItem(STORAGE_KEY);
+      let projects: SavedProject[] = data ? JSON.parse(data) : [];
+
+      // 检查是否已存在同名项目
+      const existingIndex = projects.findIndex(p => p.name === name.trim());
+      if (existingIndex >= 0) {
+        projectData.createdAt = projects[existingIndex].createdAt;
+        projects[existingIndex] = projectData;
+      } else {
+        projects.push(projectData);
+      }
+
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+      setSavedProjects(projects.sort((a, b) => b.updatedAt - a.updatedAt));
+      setCurrentProjectName(name.trim());
+      setShowSaveDialog(false);
+      setNewProjectName('');
+    } catch (e) {
+      console.error('保存项目失败:', e);
+      alert('保存失败，请重试');
+    }
+  };
+
+  // 加载项目
+  const loadProject = (project: SavedProject) => {
+    const loadedMeasures: CellData[][] = project.measures.map(m =>
+      m.map(c => ({
+        text: c.text,
+        isAccented: c.isAccented,
+        isEditing: false,
+      }))
+    );
+
+    setMeasures(loadedMeasures);
+    setMeasuresCount(loadedMeasures.length);
+    setCurrentProjectName(project.name);
+    setShowLoadDialog(false);
+  };
+
+  // 删除项目
+  const deleteProject = (name: string) => {
+    if (!confirm(`确定要删除作品 "${name}" 吗？`)) return;
+
+    try {
+      const data = localStorage.getItem(STORAGE_KEY);
+      if (data) {
+        let projects: SavedProject[] = JSON.parse(data);
+        projects = projects.filter(p => p.name !== name);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
+        setSavedProjects(projects.sort((a, b) => b.updatedAt - a.updatedAt));
+        if (currentProjectName === name) {
+          setCurrentProjectName('');
+        }
+      }
+    } catch (e) {
+      console.error('删除项目失败:', e);
+    }
+  };
 
   // 计算当前播放位置
   const getTotalBeats = () => measuresCount * cellsPerMeasure;
@@ -239,6 +349,48 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
     setIsDraggingFromCell(false);
   };
 
+  // 小节拖拽处理
+  const handleMeasureDragStart = (e: React.DragEvent, measureIndex: number) => {
+    e.dataTransfer.setData('measure-index', measureIndex.toString());
+    e.dataTransfer.effectAllowed = 'move';
+    setDragMeasureIndex(measureIndex);
+  };
+
+  const handleMeasureDragOver = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dragMeasureIndex !== null && dragMeasureIndex !== targetIndex) {
+      setDropTargetIndex(targetIndex);
+    }
+  };
+
+  const handleMeasureDragLeave = () => {
+    setDropTargetIndex(null);
+  };
+
+  const handleMeasureDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (dragMeasureIndex !== null && dragMeasureIndex !== targetIndex) {
+      // 重新排序小节
+      setMeasures(prev => {
+        const newMeasures = [...prev];
+        const [movedMeasure] = newMeasures.splice(dragMeasureIndex, 1);
+        newMeasures.splice(targetIndex, 0, movedMeasure);
+        return newMeasures;
+      });
+    }
+
+    setDragMeasureIndex(null);
+    setDropTargetIndex(null);
+  };
+
+  const handleMeasureDragEnd = () => {
+    setDragMeasureIndex(null);
+    setDropTargetIndex(null);
+  };
+
   // 计算下划线数量（根据字数表示音符时值）
   // 1字 = 1/4拍（四分音符）→ 0条下划线
   // 2字 = 1/8拍（八分音符）→ 1条下划线
@@ -308,9 +460,26 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
 
     const { measureIndex: currentMeasureIdx, cellIndex: currentCellIdx } = getCurrentPosition();
 
+    const isMeasureDragging = dragMeasureIndex === measureIndex;
+    const isMeasureDropTarget = dropTargetIndex === measureIndex;
+
     return (
-      <div key={measureIndex} className="measure">
-        <div className="measure-number">{measureIndex + 1}</div>
+      <div
+        key={measureIndex}
+        className={`measure ${isMeasureDragging ? 'measure-dragging' : ''} ${isMeasureDropTarget ? 'measure-drop-target' : ''}`}
+        onDragOver={(e) => handleMeasureDragOver(e, measureIndex)}
+        onDragLeave={handleMeasureDragLeave}
+        onDrop={(e) => handleMeasureDrop(e, measureIndex)}
+      >
+        <div
+          className="measure-number"
+          draggable
+          onDragStart={(e) => handleMeasureDragStart(e, measureIndex)}
+          onDragEnd={handleMeasureDragEnd}
+          title="拖拽可重新排列小节"
+        >
+          {measureIndex + 1}
+        </div>
         <div className="measure-grid">
           {measureData.map((cell, cellIndex) => {
             const isCurrentBeat = isPlaying && currentMeasureIdx === measureIndex && currentCellIdx === cellIndex;
@@ -399,11 +568,26 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
     return rows;
   };
 
+  // 格式化时间
+  const formatDate = (timestamp: number) => {
+    const date = new Date(timestamp);
+    return date.toLocaleDateString('zh-CN') + ' ' + date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+  };
+
   return (
     <div className="lyrics-editor">
       <div className="editor-header">
-        <h3>歌词创作区</h3>
+        <div className="header-title">
+          <h3>歌词创作区</h3>
+          {currentProjectName && <span className="project-name">- {currentProjectName}</span>}
+        </div>
         <div className="editor-controls">
+          <button onClick={() => setShowSaveDialog(true)} className="control-btn save-btn">
+            💾 保存
+          </button>
+          <button onClick={() => { loadProjectList(); setShowLoadDialog(true); }} className="control-btn load-btn">
+            📂 加载 {savedProjects.length > 0 && `(${savedProjects.length})`}
+          </button>
           <button onClick={addMeasure} className="control-btn add-btn">
             + 添加小节
           </button>
@@ -416,6 +600,71 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
         </div>
       </div>
 
+      {/* 保存对话框 */}
+      {showSaveDialog && (
+        <div className="dialog-overlay" onClick={() => setShowSaveDialog(false)}>
+          <div className="dialog" onClick={e => e.stopPropagation()}>
+            <h4>保存作品</h4>
+            <input
+              type="text"
+              value={newProjectName || currentProjectName}
+              onChange={e => setNewProjectName(e.target.value)}
+              placeholder="输入作品名称"
+              className="dialog-input"
+              autoFocus
+              onKeyDown={e => {
+                if (e.key === 'Enter') {
+                  saveProject(newProjectName || currentProjectName);
+                }
+              }}
+            />
+            <div className="dialog-buttons">
+              <button onClick={() => saveProject(newProjectName || currentProjectName)} className="btn-primary">
+                保存
+              </button>
+              <button onClick={() => setShowSaveDialog(false)} className="btn-secondary">
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 加载对话框 */}
+      {showLoadDialog && (
+        <div className="dialog-overlay" onClick={() => setShowLoadDialog(false)}>
+          <div className="dialog dialog-wide" onClick={e => e.stopPropagation()}>
+            <h4>加载作品</h4>
+            {savedProjects.length === 0 ? (
+              <p className="no-projects">暂无保存的作品</p>
+            ) : (
+              <div className="project-list">
+                {savedProjects.map(project => (
+                  <div key={project.name} className="project-item">
+                    <div className="project-info" onClick={() => loadProject(project)}>
+                      <span className="project-title">{project.name}</span>
+                      <span className="project-date">{formatDate(project.updatedAt)}</span>
+                    </div>
+                    <button
+                      className="project-delete"
+                      onClick={(e) => { e.stopPropagation(); deleteProject(project.name); }}
+                      title="删除"
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="dialog-buttons">
+              <button onClick={() => setShowLoadDialog(false)} className="btn-secondary">
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="lyrics-grid">
         {renderMeasureRows()}
       </div>
@@ -426,10 +675,10 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics }
           <li>每行2个小节，每小节4拍（4/4拍）</li>
           <li>从上方韵脚助手<strong>拖拽词汇</strong>到格子中，自动生成对应下划线</li>
           <li><strong>格子内的词可拖拽</strong>移动到其他位置，原位置自动清空</li>
+          <li><strong>拖拽小节编号</strong>可重新排列小节顺序</li>
           <li>单击格子手动输入歌词，输入空格表示空拍（显示为∅）</li>
           <li>双击格子标记/取消重音（灰色背景）</li>
-          <li><strong>下划线规则：</strong>1字=1/4拍无线，2字=1/8拍1线，3-4字=1/16拍2线，5-8字=1/32拍3线</li>
-          <li>播放时当前拍会高亮显示，循环播放到最后再从头开始</li>
+          <li><strong>保存/加载：</strong>点击保存按钮可保存当前作品，加载按钮可恢复之前的作品</li>
         </ul>
       </div>
     </div>
