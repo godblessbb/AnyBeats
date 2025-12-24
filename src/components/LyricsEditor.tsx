@@ -633,11 +633,11 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics, 
     return text.trim() === '' && text.length > 0;
   };
 
-  // 将文本中的空格替换为∅符号显示
+  // 将文本中的特殊符号替换为显示符号
   const formatDisplayText = (text: string): string => {
     if (!text) return '';
-    // 将空格替换为∅符号
-    return text.replace(/ /g, '∅');
+    // 将空格替换为∅符号（空拍），将-替换为⌒符号（延音）
+    return text.replace(/ /g, '∅').replace(/-/g, '⌒');
   };
 
   // 渲染小节
@@ -897,6 +897,7 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics, 
           <li>从上方韵脚助手<strong>拖拽词汇</strong>到格子中，自动生成对应下划线</li>
           <li><strong>格子内的词可拖拽</strong>移动到其他位置，原位置自动清空</li>
           <li><strong>拖拽小节编号</strong>可重新排列小节顺序</li>
+          <li><strong>特殊符号：</strong>空格=空拍（显示∅），连字符-=延音（显示⌒，拉长前一个音）</li>
           <li><strong>单击格子</strong>直接编辑，<strong>Enter保存</strong>后可用方向键导航，<strong>双击</strong>或<strong>A键</strong>切换重音</li>
           <li><strong>键盘导航：</strong>按→进入导航模式，方向键移动，Enter编辑，Esc退出导航</li>
           <li><strong>复制粘贴：</strong>Ctrl+C复制，Ctrl+V粘贴，Backspace/Delete删除内容</li>

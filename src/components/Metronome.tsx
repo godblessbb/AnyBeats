@@ -199,15 +199,15 @@ export default function Metronome({ onBeatChange, onBpmChange, measures = [], se
     const charInterval = beatInterval / chars.length;
 
     chars.forEach((char, index) => {
-      if (char !== ' ') {
-        // 非空拍，播放音效
+      if (char !== ' ' && char !== '-') {
+        // 非空拍且非延音符，播放音效
         const timer = window.setTimeout(() => {
           // 第一个字用高音（强调），其他用低音
           playBeat(index === 0 && cellIndex === 0);
         }, index * charInterval);
         subdivisionTimersRef.current.push(timer);
       }
-      // 空拍（空格）不播放，只等待时间
+      // 空拍（空格）不播放，延音符（-）也不播放（拉长前一个音）
     });
   };
 
