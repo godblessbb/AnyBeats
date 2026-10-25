@@ -1,4 +1,5 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
+import type { RecordController } from '../audio/RecordController';
 import type { AiController } from '../engine/aiController';
 import type { EditorStore } from '../engine/editorStore';
 import type { Transport } from '../engine/transport';
@@ -11,6 +12,7 @@ export interface Services {
   store: EditorStore;
   transport: Transport;
   ai: AiController;
+  recorder: RecordController;
 }
 
 export const ServicesContext = createContext<Services | null>(null);
@@ -42,4 +44,9 @@ export function useLibrary() {
     (l) => library.subscribe(l),
     () => library.list(),
   );
+}
+
+export function useRecorder() {
+  const { recorder } = useServices();
+  return useSyncExternalStore(recorder.subscribe, recorder.getState);
 }

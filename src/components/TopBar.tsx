@@ -3,7 +3,7 @@ import { stepDuration } from '../core';
 import { BPM_MAX, BPM_MIN, type SaveStatus } from '../engine/editorStore';
 import { formatClock, formatPosition, playFrom } from '../engine/view';
 import { Icon } from './icons';
-import { useAi, useEditor, useServices, useTransport } from './services';
+import { useAi, useEditor, useRecorder, useServices, useTransport } from './services';
 
 function clockText(ms: number) {
   const d = new Date(ms);
@@ -131,9 +131,20 @@ export function PlayButton({ mobile = false }: { mobile?: boolean }) {
   );
 }
 
-export function RecordButton() {
+export function RecordButton({ onRecord, mobile = false }: { onRecord: () => void; mobile?: boolean }) {
+  const r = useRecorder();
+  const recording = r.phase === 'recording' || r.phase === 'starting';
+  const title = !r.available.ok ? `录不了音：${r.available.reason}` : recording ? '停止录音（R）' : '录音（R）：跟伴奏录一遍';
   return (
-    <button className="ibtn recbtn" disabled aria-disabled="true" title="录音即将上线（下一版）" aria-label="录音（即将上线）">
+    <button
+      className={`ibtn recbtn${recording ? ' on' : ''}${r.available.ok ? '' : ' unavailable'}`}
+      data-role={mobile ? 'record-m' : 'record'}
+      title={title}
+      aria-label={title}
+      aria-pressed={recording}
+      data-unavailable={r.available.ok ? undefined : '1'}
+      onClick={onRecord}
+    >
       <Icon.rec />
     </button>
   );
@@ -151,7 +162,7 @@ export function WorkerChip() {
   );
 }
 
-export function TopBar({ onExport }: { onExport: () => void }) {
+export function TopBar({ onExport, onRecord }: { onExport: () => void; onRecord: () => void }) {
   const { store, transport } = useServices();
   const s = useEditor();
   const t = useTransport();
@@ -178,7 +189,7 @@ export function TopBar({ onExport }: { onExport: () => void }) {
           <Icon.start />
         </button>
         <PlayButton />
-        <RecordButton />
+        <RecordButton onRecord={onRecord} />
         <div className="pos" data-role="position">
           <b className="mono" data-contrast>{pos.bar}</b>
           <span className="mono hide-narrow">
@@ -213,14 +224,14 @@ export function TopBar({ onExport }: { onExport: () => void }) {
   );
 }
 
-export function MobileTransport() {
+export function MobileTransport({ onRecord }: { onRecord: () => void }) {
   const { transport } = useServices();
   const t = useTransport();
   const pos = usePositionText();
   return (
     <div className="mtransport">
       <PlayButton mobile />
-      <RecordButton />
+      <RecordButton onRecord={onRecord} mobile />
       <div className="pos">
         <b className="mono" data-contrast>{pos.bar}</b>
         <span className="mono">{pos.time}</span>

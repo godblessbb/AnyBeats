@@ -33,7 +33,7 @@ function isTyping(el: EventTarget | null): boolean {
 }
 
 /** 编辑器快捷键（状态栏里列的那些）；焦点在输入框里时不接管 */
-function useShortcuts(openExport: () => void) {
+function useShortcuts(openExport: () => void, record: () => void) {
   const { store, transport } = useServices();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -73,6 +73,11 @@ function useShortcuts(openExport: () => void) {
         return;
       }
       if (e.altKey) return;
+      if ((k === 'r' || k === 'R') && !e.shiftKey) {
+        record();
+        handled();
+        return;
+      }
       switch (k) {
         case ' ':
           transport.toggle(playFrom(s.selection));
@@ -120,11 +125,11 @@ function useShortcuts(openExport: () => void) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [store, transport, openExport]);
+  }, [store, transport, openExport, record]);
 }
 
 export default function App() {
-  const { storage } = useServices();
+  const { storage, recorder } = useServices();
   const s = useEditor();
   const mobile = useMobile();
   const [panel, setPanel] = useState<PanelKey>('rhyme');
@@ -138,7 +143,13 @@ export default function App() {
     setMtab('proj');
     setCollapsed(false);
   };
-  useShortcuts(openExport);
+  const record = () => {
+    setPanel('rec');
+    setMtab('rec');
+    setCollapsed(false);
+    recorder.toggleRecord();
+  };
+  useShortcuts(openExport, record);
 
   const shown: PanelKey = mobile ? MOBILE_PANEL[mtab] : panel;
   const peek = mobile && mtab === 'write';
@@ -146,8 +157,8 @@ export default function App() {
 
   return (
     <div className="app" data-panel={shown} data-persistent={storage.persistent ? '1' : '0'}>
-      <TopBar onExport={openExport} />
-      <MobileTransport />
+      <TopBar onExport={openExport} onRecord={record} />
+      <MobileTransport onRecord={record} />
       <TrackStrip />
       <main className={`main${collapsed && !mobile ? ' collapsed' : ''}`}>
         <section className="editor" aria-label="歌词网格">

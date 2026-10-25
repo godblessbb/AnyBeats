@@ -120,6 +120,11 @@ export const Icon = {
       <path d="M8 6.5v3.5M8 12v.01" strokeLinecap="round" />
     </svg>
   ),
+  bt: () => (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m4 5 8 6-4 3V2l4 3-8 6" />
+    </svg>
+  ),
   info: () => (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
       <circle cx="8" cy="8" r="6.5" />

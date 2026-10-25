@@ -3,7 +3,8 @@ import { stepDuration, STEPS_PER_BAR } from '../core';
 import { formatClock } from '../engine/view';
 import { Icon } from './icons';
 import { Menu } from './Menu';
-import { useEditor, useServices, useTransport } from './services';
+import { useEditor, useRecorder, useServices, useTransport } from './services';
+import type { TakeMeta } from '../audio/takes';
 
 function wavePolygon(peaks: number[], from: number, to: number): string {
   const n = peaks.length;
@@ -52,10 +53,50 @@ function Volume({ label, value, onChange }: { label: string; value: number; onCh
   );
 }
 
+/** 输入电平：14 格，-60 dB 到 0 dB */
+function Meter({ db }: { db: number }) {
+  const lit = Number.isFinite(db) ? Math.round(((Math.max(-60, Math.min(0, db)) + 60) / 60) * 14) : 0;
+  return (
+    <div className="meter" role="meter" aria-label="输入电平" aria-valuemin={-60} aria-valuemax={0} aria-valuenow={Number.isFinite(db) ? Math.round(db) : -60}>
+      {Array.from({ length: 14 }, (_, i) => (
+        <i key={i} className={i < lit ? (i < 9 ? 'on' : 'hot') : ''}></i>
+      ))}
+    </div>
+  );
+}
+
+function TakeLane({ take, total }: { take: TakeMeta; total: number }) {
+  const rawStart = take.songStart - take.latencyMs / 1000;
+  const pct = (sec: number) => (sec / total) * 100;
+  const left = pct(rawStart);
+  const width = pct(take.duration);
+  const cutL = pct(take.trimStart);
+  const cutR = pct(take.trimEnd);
+  return (
+    <div className={`lane take${take.selected ? ' sel' : ''}`} data-role="take-lane" data-take={take.id}>
+      <svg viewBox="0 0 1000 100" preserveAspectRatio="none" style={{ position: 'absolute', left: `${left}%`, width: `${width}%` }}>
+        <g fill={take.selected ? 'var(--ab-accent)' : 'var(--wave-played)'} opacity={take.selected ? 0.75 : 1}>
+          {take.peaks.length > 0 && <polygon points={wavePolygon(take.peaks.map((p) => p * 0.8), 0, take.peaks.length)} />}
+        </g>
+      </svg>
+      {take.trimStart > 0 && <div className="cut" style={{ left: `${left}%`, width: `${cutL}%` }}></div>}
+      {take.trimEnd > 0 && <div className="cut" style={{ left: `${left + width - cutR}%`, width: `${cutR}%` }}></div>}
+      {take.selected && (
+        <>
+          <div className="trim l" style={{ left: `${left + cutL}%` }}></div>
+          <div className="trim r" style={{ left: `calc(${left + width - cutR}% - 6px)` }}></div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function TrackStrip() {
   const { store, transport } = useServices();
   const s = useEditor();
   const t = useTransport();
+  const rec = useRecorder();
+  const recording = rec.phase === 'recording' || rec.phase === 'starting';
   const fileRef = useRef<HTMLInputElement>(null);
   const laneRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
@@ -127,6 +168,24 @@ export function TrackStrip() {
             <Icon.more />
           </button>
         </div>
+        {rec.takes.map((take) => (
+          <div key={take.id} className={`lane-h take-h${take.selected ? ' on' : ''}`}>
+            {take.selected ? <span className="star">★</span> : <span className="faint">☆</span>}
+            <span className="nm">{take.name}</span>
+            <span className="muted mono" style={{ marginLeft: 'auto' }}>
+              {formatClock(take.duration - take.trimStart - take.trimEnd, false)}
+            </span>
+          </div>
+        ))}
+        {recording && (
+          <div className="lane-h take-h">
+            <span style={{ color: 'var(--ab-rec)' }}>●</span>
+            <span className="nm">{rec.recordingName}</span>
+            <span className="muted" style={{ marginLeft: 'auto' }}>
+              录音中
+            </span>
+          </div>
+        )}
         {menu && (
           <Menu
             x={menu.x}
@@ -167,8 +226,18 @@ export function TrackStrip() {
             </button>
           )}
         </div>
-        {/* 录音 take 泳道的位置（录音上线后在这里展开） */}
-        <div className="take-lanes" data-role="take-lanes" aria-hidden="true"></div>
+        <div className="take-lanes" data-role="take-lanes">
+          {rec.takes.map((take) => (
+            <TakeLane key={take.id} take={take} total={total} />
+          ))}
+          {recording && (
+            <div className="lane take rec-lane">
+              {rec.recordFromSec !== null && headX !== null && (
+                <div className="rec-fill" style={{ left: `${(rec.recordFromSec / total) * 100}%`, width: `${Math.max(0, headX - (rec.recordFromSec / total) * 100)}%` }}></div>
+              )}
+            </div>
+          )}
+        </div>
         <div
           className="firstbeat"
           style={{ left: `${(s.offsetMs / 1000 / total) * 100}%` }}
@@ -182,12 +251,20 @@ export function TrackStrip() {
         >
           <i className="fb-hit"></i>
         </div>
-        {headX !== null && <div className="playhead" style={{ left: `${Math.min(100, headX)}%` }}></div>}
+        {headX !== null && <div className={`playhead${recording ? ' recline' : ''}`} style={{ left: `${Math.min(100, headX)}%` }}></div>}
       </div>
       <div className="lanes-r">
         <Volume label="伴奏" value={t.backingVolume} onChange={(v) => transport.setBackingVolume(v)} />
         <Volume label="节拍" value={t.clickVolume} onChange={(v) => transport.setClickVolume(v)} />
         {t.message && <span className="lbl strip-msg" title={t.message}>{t.message}</span>}
+        {(recording || rec.takes.length > 0) && (
+          <>
+            <div className="lbl" style={{ marginTop: 4 }}>
+              输入电平
+            </div>
+            <Meter db={recording ? rec.levelDb : -Infinity} />
+          </>
+        )}
       </div>
     </section>
   );

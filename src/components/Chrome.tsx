@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactElement } from 'react';
 import { Icon } from './icons';
-import { useEditor } from './services';
+import { useEditor, useRecorder } from './services';
 
 export type PanelKey = 'rhyme' | 'ai' | 'rec' | 'export';
 export type MobileTab = 'write' | 'rhyme' | 'ai' | 'rec' | 'proj';
@@ -26,7 +26,6 @@ export function PanelTabs({ panel, onPanel, onCollapse }: { panel: PanelKey; onP
       {tabs.map(([k, label]) => (
         <button key={k} role="tab" aria-selected={panel === k} className={`tab${panel === k ? ' on' : ''}`} onClick={() => onPanel(k)}>
           {label}
-          {k === 'rec' && <span className="soon-tag">即将上线</span>}
         </button>
       ))}
       <button className="ibtn x collapse" title="收起面板" aria-label="收起面板" data-role="collapse-panel" onClick={onCollapse}>
@@ -47,7 +46,7 @@ export function TabBar({ tab, onTab }: { tab: MobileTab; onTab: (t: MobileTab) =
   return (
     <nav className="tabbar">
       {tabs.map(([k, label, I]) => (
-        <button key={k} className={k === tab ? 'on' : ''} onClick={() => onTab(k)} title={k === 'rec' ? '录音即将上线' : undefined}>
+        <button key={k} className={k === tab ? 'on' : ''} onClick={() => onTab(k)}>
           <I />
           <span>{label}</span>
         </button>
@@ -67,8 +66,8 @@ const STATUS_LEFT: Record<PanelKey, [string, string][]> = {
     ['⌫', '删除'],
   ],
   rec: [
-    ['空格', '播放'],
-    ['Enter', '编辑'],
+    ['R', '录音 / 停止'],
+    ['空格', '播放 / 停止'],
     ['⌘Z', '撤销'],
   ],
   ai: [
@@ -86,11 +85,14 @@ const STATUS_LEFT: Record<PanelKey, [string, string][]> = {
 
 export function StatusBar({ panel }: { panel: PanelKey }) {
   const s = useEditor();
+  const r = useRecorder();
   const bars = s.grid.sections.reduce((n, sec) => n + sec.bars.length, 0);
   const right =
     panel === 'export'
       ? `可撤销 ${s.undoDepth} 步 · ${s.save.kind === 'memory' ? '本次不保存' : '本机自动保存'}`
-      : panel === 'ai'
+      : panel === 'rec'
+        ? `${r.takes.length} 个 take · 延迟补偿 ${r.latencyMs === null ? '未校准' : `${r.latencyMs} ms`}`
+        : panel === 'ai'
         ? s.preview
           ? 'AI 结果是预览，采用前不改动歌词'
           : '写词、押韵不依赖 Worker'
@@ -98,6 +100,7 @@ export function StatusBar({ panel }: { panel: PanelKey }) {
   return (
     <footer className="status">
       {panel === 'ai' && <span>虚线行 = AI 预览</span>}
+      {panel === 'rec' && (r.phase === 'recording' || r.phase === 'starting') && <span style={{ color: 'var(--ab-rec)' }}>● 录音中 {r.recordingName}</span>}
       {STATUS_LEFT[panel].map(([k, label], i) => (
         <span key={k} className={i >= 6 ? 'hide-narrow' : undefined}>
           <kbd>{k}</kbd> {label}

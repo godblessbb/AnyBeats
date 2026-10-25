@@ -1,10 +1,11 @@
 import { useRef, useState } from 'react';
 import { exportLrc, exportTxt, serializeProject } from '../core';
 import { EXAMPLES } from '../engine/demo';
+import { buildReaperZip, type StemChoice } from '../export/reaperZip';
 import { Icon } from './icons';
-import { useEditor, useLibrary, useServices } from './services';
+import { useEditor, useLibrary, useRecorder, useServices, useTransport } from './services';
 
-type Format = 'txt' | 'lrc' | 'project';
+type Format = 'txt' | 'lrc' | 'project' | 'rpp';
 
 const FORMATS: { key: Format; label: string; note: string; ext: string; mime: string }[] = [
   { key: 'txt', label: '歌词 .txt', note: '按段落分行', ext: 'txt', mime: 'text/plain' },
@@ -16,8 +17,9 @@ function fileBase(name: string) {
   return name.replace(/[\\/:*?"<>|]+/g, '_').trim() || 'AnyBeats';
 }
 
-function download(name: string, text: string, mime: string) {
-  const url = URL.createObjectURL(new Blob([text], { type: `${mime};charset=utf-8` }));
+function download(name: string, data: string | Uint8Array, mime: string) {
+  const blob = typeof data === 'string' ? new Blob([data], { type: `${mime};charset=utf-8` }) : new Blob([data as Uint8Array<ArrayBuffer>], { type: mime });
+  const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
   a.download = name;
@@ -140,20 +142,27 @@ function ProjectList() {
 }
 
 export function ExportPanel() {
-  const { store, storage } = useServices();
+  const { store, storage, transport, recorder } = useServices();
   const s = useEditor();
+  const t = useTransport();
+  const rec = useRecorder();
   const list = useLibrary();
-  const [picked, setPicked] = useState<Record<Format, boolean>>({ txt: true, lrc: true, project: true });
+  const hasAudio = rec.takes.length > 0 || !!t.backing;
+  const [picked, setPicked] = useState<Record<Format, boolean>>({ txt: true, lrc: true, project: true, rpp: hasAudio });
+  const [stems, setStems] = useState<StemChoice>({ backing: true, takes: true, metronome: false, guide: false });
   const [result, setResult] = useState<{ files: string[]; preview: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [showList, setShowList] = useState(false);
-  const count = FORMATS.filter((f) => picked[f.key]).length;
+  const count = FORMATS.filter((f) => picked[f.key]).length + (picked.rpp ? 1 : 0);
+  const selected = rec.takes.find((x) => x.selected);
 
   const doExport = () => {
     const project = store.project;
     const base = fileBase(project.name);
     const files: string[] = [];
     let preview = '';
+    setError(null);
     for (const f of FORMATS) {
       if (!picked[f.key]) continue;
       const text = f.key === 'txt' ? exportTxt(project) : f.key === 'lrc' ? exportLrc(project) : serializeProject(project);
@@ -162,8 +171,34 @@ export function ExportPanel() {
       files.push(name);
       if (f.key === 'lrc' || (!preview && f.key === 'txt')) preview = text;
     }
+    if (picked.rpp) {
+      try {
+        const backing = transport.backingAudio();
+        const takes = recorder.allTakes();
+        const sampleRate = transport.audioContext()?.sampleRate ?? backing?.sampleRate ?? takes[0]?.sampleRate ?? 48000;
+        const out = buildReaperZip({ project, sampleRate, backing, takes, stems });
+        const name = `${base}.zip`;
+        download(name, out.zip, 'application/zip');
+        files.push(`${name}（${out.files.join('、')}）`);
+        if (!preview) preview = out.rpp;
+      } catch (e) {
+        setError(`Reaper 工程打包失败：${(e as Error).message}`);
+      }
+    }
     setResult({ files, preview });
   };
+
+  const stemButtons: { key: keyof StemChoice; label: string; disabled: boolean; title: string }[] = [
+    { key: 'backing', label: '伴奏', disabled: !t.backing, title: t.backing ? '伴奏一轨' : '还没载入伴奏' },
+    {
+      key: 'takes',
+      label: selected ? `${selected.name} ★` : `Take ×${rec.takes.length}`,
+      disabled: rec.takes.length === 0,
+      title: rec.takes.length ? '每个 take 一轨：选用的那轨打开，其余静音' : '还没有录音',
+    },
+    { key: 'metronome', label: '节拍器', disabled: false, title: '节拍器渲染成一轨' },
+    { key: 'guide', label: '导唱', disabled: false, title: '导唱打点渲染成一轨' },
+  ];
 
   const saveInfo =
     s.save.kind === 'memory'
@@ -211,22 +246,44 @@ export function ExportPanel() {
               <small>{f.note}</small>
             </label>
           ))}
-          <div className="li disabled-row" aria-disabled="true" title="录音上线后可用">
-            <span className="check"></span>
-            <span>Reaper 工程 .RPP + 分轨</span>
-            <small className="soon">录音上线后可用</small>
-          </div>
+          <label className="li check-row" title="一个 zip：.RPP + 对齐好的分轨 WAV（24 bit），Reaper 里直接打开">
+            <input
+              type="checkbox"
+              className="sr-only"
+              checked={picked.rpp}
+              data-role="export-rpp"
+              onChange={(e) => setPicked({ ...picked, rpp: e.currentTarget.checked })}
+            />
+            <span className={`check${picked.rpp ? ' on' : ''}`}></span>
+            <span data-contrast={picked.rpp ? '' : undefined}>Reaper 工程 .RPP + 分轨</span>
+            <small>zip</small>
+          </label>
         </div>
-        <div className="seg" style={{ paddingLeft: 28 }} title="录音上线后可用">
-          <button disabled>伴奏</button>
-          <button disabled>选用 take</button>
-          <button disabled>节拍器</button>
-          <button disabled>导唱</button>
+        <div className="seg" style={{ paddingLeft: 28 }} data-role="rpp-stems">
+          {stemButtons.map((b) => (
+            <button
+              key={b.key}
+              className={stems[b.key] && !b.disabled ? 'on' : ''}
+              disabled={!picked.rpp || b.disabled}
+              title={b.title}
+              aria-pressed={stems[b.key] && !b.disabled}
+              data-role={`stem-${b.key}`}
+              onClick={() => setStems({ ...stems, [b.key]: !stems[b.key] })}
+            >
+              {b.label}
+            </button>
+          ))}
         </div>
       </div>
       <button className="btn primary block" data-role="export" disabled={count === 0} onClick={doExport}>
         导出 {count} 项到 下载/{fileBase(s.name)}
       </button>
+      {error && (
+        <div className="note warn" data-role="export-error">
+          <Icon.warn />
+          <span>{error}</span>
+        </div>
+      )}
       {result && (
         <div className="card soft" data-role="export-result">
           <span className="lbl">已生成：{result.files.join('、')}。没有开始下载（例如画布里不允许下载）时，可以从下面复制：</span>

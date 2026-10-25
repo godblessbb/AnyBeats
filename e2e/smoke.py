@@ -10,9 +10,13 @@
   5. 双击标重音
   6. 撤销生效
   7. 导出 LRC，内容含时间戳
-  8. 在 sandbox="allow-scripts" 的 iframe 里加载构建产物不白屏，并显示「本次不保存」
+  8. 在 sandbox="allow-scripts" 的 iframe 里加载构建产物不白屏，并显示「本次不保存」；
+     录音按钮写明录不了的原因（画布里拿不到麦克风），点了不白屏、不报错
+  9. 录音（Chromium 假麦克风 --use-fake-device-for-media-stream）：录一遍 → take 列表出现 → 再录一遍
+     → ★ 选用第二遍 → 回放时高亮格变化 → 刷新后 take 还在（IndexedDB）→ 导出 zip 里有 .RPP 和非空 WAV，
+     .RPP 的 SOURCE WAVE FILE 都指向 zip 里的文件
   另外全程断言：没有页面异常、没有发往本机以外的请求。
-并对 浅 / 深色 × 999×581 / 356×624（外加 1134×675）截图到 e2e/shots/。
+并对 浅 / 深色 × 999×581 / 356×624（外加 1134×675）截图到 e2e/shots/（编辑器 / AI / 录音 / 延迟校准 / 导出）。
 
 任何一条失败退出码 1。
 环境变量：
@@ -21,6 +25,7 @@
 """
 
 import glob
+import io
 import os
 import re
 import shutil
@@ -30,6 +35,8 @@ import subprocess
 import sys
 import time
 import urllib.request
+import wave
+import zipfile
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -104,17 +111,21 @@ def stop_preview(proc: subprocess.Popen):
         proc.kill()
 
 
+# 假麦克风（Chromium 自带的测试音）+ 自动同意权限弹窗
+MEDIA_ARGS = ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"]
+
+
 def launch(p):
     exe = os.environ.get("ANYBEATS_CHROMIUM")
     if exe:
-        return p.chromium.launch(executable_path=exe)
+        return p.chromium.launch(executable_path=exe, args=MEDIA_ARGS)
     try:
-        return p.chromium.launch()
+        return p.chromium.launch(args=MEDIA_ARGS)
     except Exception:
         found = sorted(glob.glob("/opt/pw-browsers/chromium-*/chrome-linux*/chrome"))
         if not found:
             raise
-        return p.chromium.launch(executable_path=found[-1])
+        return p.chromium.launch(executable_path=found[-1], args=MEDIA_ARGS)
 
 
 class Watch:
@@ -160,6 +171,162 @@ def find_slot(page, js_filter: str) -> str | None:
           return s ? s.dataset.abs : null;
         }}"""
     )
+
+
+def now_slots(page) -> str:
+    return page.evaluate("() => [...document.querySelectorAll('.slot.now')].map(e => e.dataset.abs).join(',')")
+
+
+def watch_highlight(page, seconds: float) -> set[str]:
+    seen: list[str] = []
+    t0 = time.time()
+    while time.time() - t0 < seconds:
+        seen.append(now_slots(page))
+        page.wait_for_timeout(100)
+    return {x for x in seen if x}
+
+
+def wait_takes(page, n: int, timeout=8000) -> bool:
+    try:
+        page.wait_for_function(f"() => document.querySelectorAll('[data-role=take]').length === {n}", timeout=timeout)
+        return True
+    except Exception:
+        return False
+
+
+def finish_calibration(page, timeout=15000) -> str:
+    """等校准跑完：返回 'result' / 'error' / ''（超时 = 挂住了）"""
+    try:
+        page.wait_for_function(
+            "() => !!document.querySelector('[data-role=calibrate-accept]') || !!document.querySelector('[data-role=calibrate-error]')",
+            timeout=timeout,
+        )
+    except Exception:
+        return ""
+    return "result" if page.locator("[data-role=calibrate-accept]").count() else "error"
+
+
+def check_zip(data: bytes):
+    """导出的 zip：有 .RPP、FILE 都指向 zip 里的文件、take WAV 非空"""
+    zf = zipfile.ZipFile(io.BytesIO(data))
+    names = zf.namelist()
+    rpps = [n for n in names if n.upper().endswith(".RPP")]
+    check("导出 zip 里有 .RPP", len(rpps) == 1, ", ".join(names))
+    if not rpps:
+        return
+    rpp = zf.read(rpps[0]).decode("utf-8")
+    files = re.findall(r'<SOURCE WAVE\s+FILE "([^"]+)"', rpp)
+    check("RPP 的 SOURCE WAVE FILE 都指向 zip 里的文件", bool(files) and all(f in names for f in files), ", ".join(files))
+    check(
+        "RPP 有 TEMPO、段落 MARKER、歌词 region",
+        re.search(r"^\s*TEMPO [\d.]+ 4 4$", rpp, re.M) is not None
+        and re.search(r'^\s*MARKER \d+ [\d.]+ "[^"]+" 0$', rpp, re.M) is not None
+        and re.search(r'^\s*MARKER \d+ [\d.]+ "[^"]+" 1$', rpp, re.M) is not None,
+    )
+    takes = [n for n in names if re.match(r"audio/take-\d+\.wav$", n)]
+    info = []
+    ok = len(takes) >= 2
+    for n in takes:
+        with wave.open(io.BytesIO(zf.read(n))) as w:
+            frames = w.readframes(w.getnframes())
+            loud = any(b != 0 for b in frames[: min(len(frames), 3 * 48000 * 3)])
+            info.append(f"{n} {w.getnframes()} 帧 {w.getsampwidth() * 8}bit {w.getframerate()}Hz")
+            ok = ok and w.getnframes() > 0 and loud and w.getsampwidth() == 3
+    check("zip 里每个 take 是非空 24 bit WAV", ok, "；".join(info))
+    sel = re.search(r'NAME "(Take \d+) ★"\n\s+VOLPAN [^\n]+\n\s+MUTESOLO 0 0 0', rpp)
+    check("RPP 里选用的 take 那轨不静音（其余静音）", sel is not None and rpp.count("MUTESOLO 1 0 0") == len(takes) - 1, sel.group(1) if sel else "")
+
+
+def run_recording(browser, url: str):
+    w, h = SIZES["desktop"]
+    ctx = browser.new_context(viewport={"width": w, "height": h}, accept_downloads=True)
+    page = ctx.new_page()
+    watch = Watch(page, url)
+    page.goto(url)
+    page.wait_for_selector("[data-role=lyrics-grid] .row")
+
+    # 第一次录音先走延迟校准
+    page.click("[data-role=record]")
+    try:
+        page.wait_for_selector("[data-role=calibrate-start]", timeout=5000)
+        steps = page.locator("[data-role=calibrate-steps] .li").count()
+    except Exception:
+        steps = 0
+    check("第一次点录音先走 3 步延迟校准", steps == 3, f"{steps} 步")
+    page.click("[data-role=calibrate-start]")
+    outcome = finish_calibration(page)
+    detail = page.inner_text("[data-role=calibrate-ms]") if outcome == "result" else (page.locator("[data-role=calibrate-error]").inner_text() if outcome else "超时")
+    # 假麦克风放的是自己的测试音，不是回环：多半判「没听到」，要的是给出结果或原因、不挂住
+    check("校准跑完给出结果或原因（不挂住）", outcome != "", detail)
+    page.click("[data-role=calibrate-skip]")  # 跳过 → 直接开录 Take 1
+
+    try:
+        page.wait_for_selector("[data-role=record].on", timeout=8000)
+        title = page.inner_text("[data-role=rec-title]")
+    except Exception:
+        title = ""
+    check("开始录音：录音键变红、面板显示「录音中 · Take 1」", "录音中" in title and "Take 1" in title, title.replace("\n", " "))
+    seen = watch_highlight(page, 1.5)
+    check("录音时歌词高亮跟着伴奏走", len(seen) >= 2, f"{len(seen)} 个不同的高亮位置")
+    page.wait_for_timeout(800)
+    page.click("[data-role=record]")
+    check("录一遍 → take 列表出现", wait_takes(page, 1), page.locator("[data-role=take-list]").inner_text().replace("\n", " ") if page.locator("[data-role=take-list]").count() else "")
+    lane = page.locator("[data-role=take-lane]").count()
+    check("轨道条展开出 take 泳道", lane == 1, f"泳道 ×{lane}")
+
+    # 第二遍
+    page.click("[data-role=record]")
+    page.wait_for_selector("[data-role=record].on", timeout=8000)
+    page.wait_for_timeout(2200)
+    page.click("[data-role=record]")
+    check("再录一遍 → 两个 take", wait_takes(page, 2))
+
+    # ★ 选用第二遍
+    page.locator("[data-role=take-star]").nth(1).click()
+    page.wait_for_timeout(100)
+    sel = [e.get_attribute("data-selected") for e in page.locator("[data-role=take]").all()]
+    check("★ 选用第二遍（只选一个）", sel == ["0", "1"], f"data-selected={sel}")
+
+    # 裁头 +0.05 s
+    page.click("[aria-label='裁头加 0.05 秒']")
+    trim = page.input_value("[data-role=trim-start]")
+    check("裁头可调", trim == "0.05", f"裁头 {trim}s")
+
+    # 回放：歌词高亮跟着走
+    page.click("[data-role=take-playback]")
+    seen = watch_highlight(page, 2.0)
+    cur = page.locator(".row.cur").count()
+    check("回放选用的 take 时高亮格变化", len(seen) >= 2 and cur == 1, f"2 秒内高亮过 {len(seen)} 个位置，.row.cur ×{cur}")
+    page.click("[data-role=take-playback]")
+    page.wait_for_timeout(300)
+    check("停止回放后没有高亮", page.locator(".slot.now").count() == 0)
+
+    # 刷新后 take 还在（IndexedDB）
+    page.reload()
+    page.wait_for_selector("[data-role=lyrics-grid] .row")
+    page.click(".tabs .tab:has-text('录音')")
+    kept = wait_takes(page, 2)
+    sel = [e.get_attribute("data-selected") for e in page.locator("[data-role=take]").all()]
+    check("刷新后 take 还在、选用不变（IndexedDB）", kept and sel == ["0", "1"], f"data-selected={sel}")
+
+    # 导出 zip
+    page.click("[data-role=open-export]")
+    page.wait_for_selector("[data-role=export]")
+    for fmt in ("txt", "lrc", "project"):
+        if page.is_checked(f"[data-role=export-{fmt}]"):
+            page.click(f"label:has([data-role=export-{fmt}])")
+    check("有 take 时 Reaper 导出默认勾上", page.is_checked("[data-role=export-rpp]"))
+    page.click("[data-role=stem-metronome]")
+    with page.expect_download() as dl:
+        page.click("[data-role=export]")
+    path = dl.value.path()
+    check("导出的是 .zip", dl.value.suggested_filename.endswith(".zip"), dl.value.suggested_filename)
+    if path:
+        check_zip(Path(path).read_bytes())
+
+    check("录音流程无页面异常", not watch.errors, "; ".join(watch.errors))
+    check("录音流程没有发往本机以外的请求", not watch.external, ", ".join(watch.external[:5]))
+    ctx.close()
 
 
 def run(p, url: str):
@@ -260,7 +427,7 @@ def run(p, url: str):
         # ---------- 7. 导出 LRC ----------
         page.click("[data-role=open-export]")
         page.wait_for_selector("[data-role=export]")
-        for fmt in ("txt", "project"):
+        for fmt in ("txt", "project", "rpp"):
             if page.is_checked(f"[data-role=export-{fmt}]"):
                 page.click(f"label:has([data-role=export-{fmt}])")
         with page.expect_download() as dl:
@@ -273,10 +440,12 @@ def run(p, url: str):
             dl.value.suggested_filename.endswith(".lrc") and len(stamps) >= 3 and "测试歌" in lrc,
             f"{dl.value.suggested_filename}，{len(stamps)} 行带时间戳，首行「{stamps[0] if stamps else ''}」",
         )
-        rpp = page.locator(".disabled-row").inner_text()
-        check("Reaper 导出是禁用态并写明原因", "录音上线后可用" in rpp, rpp.replace("\n", " "))
+        # 界面 A 时这两个入口是禁用态（「录音上线后可用」「即将上线」）；本单把它们接通了，断言随之反过来
+        rpp_box = page.locator("[data-role=export-rpp]")
+        check("Reaper 导出入口已接通（不再是禁用态）", page.locator(".disabled-row").count() == 0 and rpp_box.is_enabled())
         rec = page.locator("[data-role=play] ~ .recbtn")
-        check("录音入口是禁用态并写明「即将上线」", rec.is_disabled() and "即将上线" in (rec.get_attribute("title") or ""))
+        rec_title = rec.get_attribute("title") or ""
+        check("录音入口已接通（可点、不再写「即将上线」）", rec.is_enabled() and "即将上线" not in rec_title, f"title=「{rec_title}」")
 
         check("桌面流程无页面异常", not watch.errors, "; ".join(watch.errors))
         check("没有发往本机以外的请求", not watch.external, ", ".join(watch.external[:5]))
@@ -309,8 +478,29 @@ def run(p, url: str):
             first = frame.locator(".row .slot").first.inner_text()
             check("iframe 里照常能编辑", "在" in first, f"第一格「{first}」")
             page.screenshot(path=str(SHOTS / "iframe_sandbox_desktop_light.png"))
+            # 录音：画布里拿不到麦克风 → 按钮写明原因；点了打开录音面板显示原因，不假死、不白屏
+            recbtn = frame.locator("[data-role=record]")
+            title = recbtn.get_attribute("title") or ""
+            check("iframe 里录音按钮写明录不了的原因", "麦克风" in title and recbtn.get_attribute("data-unavailable") == "1", f"title=「{title}」")
+            recbtn.click()
+            try:
+                frame.locator("[data-role=rec-unavailable]").wait_for(timeout=5000)
+                reason = frame.locator("[data-role=rec-unavailable]").inner_text()
+            except Exception:
+                reason = ""
+            toggle_disabled = frame.locator("[data-role=rec-toggle]").is_disabled() if reason else False
+            rows_after = frame.locator("[data-role=lyrics-grid] .row").count()
+            check(
+                "iframe 里点录音：面板显示原因、录音键禁用、网格还在",
+                "麦克风" in reason and toggle_disabled and rows_after > 0,
+                f"「{reason.replace(chr(10), ' ')}」，录音键禁用={toggle_disabled}，{rows_after} 行",
+            )
+            page.screenshot(path=str(SHOTS / "iframe_sandbox-record_desktop_light.png"))
         check("iframe 里没有脚本错误", not console_errors and not watch.errors, "; ".join(console_errors + watch.errors))
         ctx.close()
+
+        # ---------- 9. 录音 ----------
+        run_recording(browser, url)
 
         # ---------- 截图 ----------
         for scheme in ("light", "dark"):
@@ -332,6 +522,26 @@ def run(p, url: str):
                     page.click(".tabs .tab:has-text('AI 写词')")
                 page.wait_for_selector("[data-role=ai-login]")
                 page.screenshot(path=str(SHOTS / f"ai-login_{size}_{scheme}.png"))
+                # 延迟校准（calibrate.html）：第一次点录音，第 2 步进行中
+                rec_btn = "[data-role=record-m]" if size == "mobile" else "[data-role=record]"
+                page.click(rec_btn)
+                page.wait_for_selector("[data-role=calibrate-start]")
+                page.click("[data-role=calibrate-start]")
+                page.wait_for_timeout(2300)
+                page.screenshot(path=str(SHOTS / f"calibrate_{size}_{scheme}.png"))
+                finish_calibration(page)
+                page.click("[data-role=calibrate-skip]")
+                # 录音中（record.html）：录完 Take 1，正在录 Take 2
+                page.wait_for_selector(f"{rec_btn}.on")
+                page.wait_for_timeout(1500)
+                page.click(rec_btn)
+                wait_takes(page, 1)
+                page.click(rec_btn)
+                page.wait_for_selector(f"{rec_btn}.on")
+                page.wait_for_timeout(1800)
+                page.screenshot(path=str(SHOTS / f"record_{size}_{scheme}.png"))
+                page.click(rec_btn)
+                wait_takes(page, 2)
                 # 工程与导出（export.html）
                 if size == "mobile":
                     page.click(".tabbar button:has-text('工程')")

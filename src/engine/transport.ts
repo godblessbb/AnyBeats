@@ -19,6 +19,7 @@ import {
   totalSteps,
   type ClickSink,
   type TimeSource,
+  type TransportEvent,
 } from '../core';
 import type { EditorStore } from './editorStore';
 
@@ -48,18 +49,36 @@ export interface TransportState {
 
 export const WAVE_BUCKETS = 240;
 
+/** 跟伴奏一起放的一段音频（录好的 take）：歌曲时间线上 position 起放 sourceOffset 开始的 length 秒 */
+export interface AudioLayer {
+  buffer: AudioBuffer;
+  position: number;
+  sourceOffset: number;
+  length: number;
+}
+
+export interface PlayOptions {
+  /** 覆盖「循环」开关（录音时不循环） */
+  loop?: boolean;
+}
+
 type AudioCtor = typeof AudioContext;
 
 export class Transport {
   private readonly store: EditorStore;
   private ctx: AudioContext | null = null;
   private clock: Clock | null = null;
+  /** 这一次播放临时指定的循环（录音时 false）；null = 跟着开关 */
+  private loopOverride: boolean | null = null;
   private detach: (() => void)[] = [];
   private raf: number | null = null;
   private buffer: AudioBuffer | null = null;
   private backingNode: AudioBufferSourceNode | null = null;
   private backingGain: GainNode | null = null;
   private scheduled: OscillatorNode[] = [];
+  private layerNodes: AudioBufferSourceNode[] = [];
+  private layers: () => AudioLayer[] = () => [];
+  private clockListeners = new Set<(e: TransportEvent) => void>();
   private listeners = new Set<() => void>();
   private state: TransportState = {
     playing: false,
@@ -93,6 +112,39 @@ export class Transport {
   }
 
   // ---------- 音频上下文 ----------
+
+  /** 伴奏、节拍器、录音、校准共用这一个 AudioContext */
+  audioContext(): AudioContext | null {
+    return this.ensureContext();
+  }
+
+  /** 声卡能不能出声（会尝试 resume） */
+  async ensureRunning(): Promise<AudioContext | null> {
+    const ctx = this.ensureContext();
+    return (await this.audioRunning(ctx)) ? ctx : null;
+  }
+
+  /** 时钟的起播 / 折回 / 改速 / 停止事件（每次播放新建的时钟都会接上） */
+  onClock(listener: (e: TransportEvent) => void): () => void {
+    this.clockListeners.add(listener);
+    return () => this.clockListeners.delete(listener);
+  }
+
+  /** 跟伴奏一起放的音频（选用的 take）；每次起播 / 折回时现取 */
+  setLayers(provider: () => AudioLayer[]): void {
+    this.layers = provider;
+  }
+
+  /** 伴奏的 PCM（导出分轨用） */
+  backingAudio(): { name: string; sampleRate: number; channels: Float32Array[] } | null {
+    const b = this.buffer;
+    if (!b || !this.state.backing) return null;
+    return {
+      name: this.state.backing.name,
+      sampleRate: b.sampleRate,
+      channels: Array.from({ length: b.numberOfChannels }, (_, i) => b.getChannelData(i)),
+    };
+  }
 
   private ensureContext(): AudioContext | null {
     if (this.ctx) return this.ctx;
@@ -131,7 +183,7 @@ export class Transport {
     else void this.play(fromStep);
   }
 
-  async play(fromStep = 0): Promise<void> {
+  async play(fromStep = 0, options: PlayOptions = {}): Promise<void> {
     this.stop();
     const ctx = this.ensureContext();
     const audible = await this.audioRunning(ctx);
@@ -139,11 +191,13 @@ export class Transport {
     const s = this.store.getState();
     const total = this.songSteps;
     const start = Math.max(0, Math.min(total - 1, Math.floor(fromStep)));
+    const loop = options.loop ?? this.state.loop;
+    this.loopOverride = options.loop ?? null;
     const clock = new Clock({
       time,
       bpm: s.bpm,
       offsetMs: s.offsetMs,
-      loop: this.state.loop ? { start: 0, end: total } : null,
+      loop: loop ? { start: 0, end: total } : null,
       waker: createTimeoutWaker(25),
     });
     this.clock = clock;
@@ -167,10 +221,17 @@ export class Transport {
           stopAt: (t) => this.stopBacking(t),
         }),
       );
+      this.detach.push(
+        clock.onTransport((e) => {
+          this.stopLayers(e.time);
+          if (e.type !== 'stop') this.startLayers(ctx, e.time, e.songTime);
+        }),
+      );
     }
     this.detach.push(
       clock.onTransport((e) => {
         if (e.type === 'stop') this.set({ playing: false, position: null });
+        for (const l of this.clockListeners) l(e);
       }),
     );
 
@@ -187,6 +248,7 @@ export class Transport {
     clock?.stop();
     for (const d of this.detach.splice(0)) d();
     this.stopBacking(0);
+    this.stopLayers(0);
     if (this.state.playing || this.state.position !== null) this.set({ playing: false, position: null });
   }
 
@@ -215,7 +277,7 @@ export class Transport {
     if (clock.bpm !== s.bpm) clock.setBpm(s.bpm);
     if (clock.offsetMs !== s.offsetMs) clock.setOffsetMs(s.offsetMs);
     const total = this.songSteps;
-    if (this.state.loop && clock.loop?.end !== total) clock.setLoop({ start: 0, end: total });
+    if ((this.loopOverride ?? this.state.loop) && clock.loop?.end !== total) clock.setLoop({ start: 0, end: total });
   }
 
   // ---------- 开关 ----------
@@ -230,7 +292,7 @@ export class Transport {
 
   setLoop(on: boolean) {
     this.set({ loop: on });
-    this.clock?.setLoop(on ? { start: 0, end: this.songSteps } : null);
+    if (this.loopOverride === null) this.clock?.setLoop(on ? { start: 0, end: this.songSteps } : null);
   }
 
   setBackingVolume(v: number) {
@@ -286,6 +348,33 @@ export class Transport {
     node.start(Math.max(time, ctx.currentTime), songTime);
     this.backingNode = node;
     this.backingGain = gain;
+  }
+
+  private startLayers(ctx: AudioContext, time: number, songTime: number) {
+    for (const layer of this.layers()) {
+      const late = Math.max(0, songTime - layer.position);
+      const length = layer.length - late;
+      if (length <= 0.001) continue;
+      const node = ctx.createBufferSource();
+      node.buffer = layer.buffer;
+      node.connect(ctx.destination);
+      const at = time + Math.max(0, layer.position - songTime);
+      node.start(Math.max(at, ctx.currentTime), layer.sourceOffset + late, length);
+      this.layerNodes.push(node);
+      node.onended = () => {
+        this.layerNodes = this.layerNodes.filter((n) => n !== node);
+      };
+    }
+  }
+
+  private stopLayers(time: number) {
+    for (const node of this.layerNodes.splice(0)) {
+      try {
+        node.stop(time);
+      } catch {
+        // 还没开始或已经停了
+      }
+    }
   }
 
   private stopBacking(time: number) {
