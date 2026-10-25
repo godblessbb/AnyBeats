@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnyBeats · AI 面板：Worker 未连接</title>
+<link rel="stylesheet" href="shared.css">
+<script src="shared.js" defer></script>
+</head>
+<!-- 画面 3b：AI 面板，本机 CLI 没登录时的引导。其它功能不受影响。 -->
+<body data-screen="ai-login" data-playing="0" data-played="0.62" data-worker-off="1" data-panel="ai" data-mtab="ai" data-sheet="tall" data-mfold="0,1"
+      data-pos-bar="10 · 2 · 1" data-pos-time="0:24.0 / 1:52" data-status-right="写词、押韵、录音不依赖 Worker">
+<template id="panel">
+  <div class="note warn"><span data-icon="warn"></span><span><b>AI 写词还没连上 Worker。</b>押韵候选、编辑、录音、导出照常可用。</span></div>
+  <div class="card">
+    <div class="ph"><h3>方式一：本机 CLI（推荐）</h3></div>
+    <span class="lbl">在跑 Alphie 的那台电脑终端里执行，然后回来点“重新检测”：</span>
+    <div class="code">claude login</div>
+    <div class="ph"><button class="btn sm primary">重新检测</button><span class="r lbl">上次检测：未登录</span></div>
+  </div>
+  <div class="card soft">
+    <div class="ph"><h3>方式二：API</h3></div>
+    <span class="lbl">在 Alphie 的 Agent 设置 → Worker 里填 API Key（DeepSeek / OpenAI 兼容）。Key 不经过这个页面。</span>
+    <div class="ph"><button class="btn sm">打开 Agent 设置</button></div>
+  </div>
+</template>
+</body>
+</html>

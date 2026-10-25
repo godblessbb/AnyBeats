@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnyBeats · 录音中（多 take）</title>
+<link rel="stylesheet" href="shared.css">
+<script src="shared.js" defer></script>
+</head>
+<!-- 画面 2：录音中。跟伴奏录第 4 遍；轨道条展开成 take 泳道，Take 2 已选用并裁了头尾；歌词随录音进度高亮；检测到蓝牙耳机给出提示。 -->
+<body data-screen="record" data-playing="1" data-recording="1" data-takes="1" data-now="6,7" data-played="0.47" data-panel="rec" data-mtab="rec" data-sheet="tall" data-mfold="0"
+      data-pos-bar="06 · 3 · 2" data-pos-time="0:14.9 / 0:44" data-status-right="录音范围 第 5–8 小节 · 预备 1 小节">
+<template id="status-left"><span style="color:var(--ab-rec)">● 录音中 Take 4</span><span>输入 −12 dB</span><span>延迟补偿 42 ms</span><span><kbd>R</kbd> 停止</span><span><kbd>空格</kbd> 停止并回放</span></template>
+<template id="panel">
+  <div class="ph"><h3><span style="color:var(--ab-rec)">●</span> 录音中 · Take 4</h3><span class="r mono" data-contrast>0:14.9</span></div>
+  <div class="note warn"><span data-icon="bt"></span><span><b>检测到蓝牙耳机（AirPods Pro）</b>：蓝牙会晚 150–250 ms，录出来会和伴奏对不齐。建议换有线耳机；继续用就按校准结果补偿。</span></div>
+  <div class="kv"><span class="muted">延迟校准</span><span><span data-contrast>已校准 42 ms</span> · <a class="muted" style="text-decoration:underline">重新校准</a></span></div>
+  <div>
+    <div class="ph" style="margin-bottom:4px"><span class="lbl">Hook（第 5–8 小节）的 4 个 take</span></div>
+    <div class="list">
+      <div class="li"><span class="faint">☆</span><span>Take 1</span><small class="mono">0:42</small><span class="r"><button class="ibtn" data-icon="play" title="试听"></button></span></div>
+      <div class="li on"><span class="star">★</span><span data-contrast>Take 2 · 选用</span><small class="mono">0:44</small><span class="r"><button class="ibtn" data-icon="play" title="试听"></button></span></div>
+      <div class="li desk-only"><span class="faint">☆</span><span>Take 3</span><small class="mono">0:38</small><span class="r"><button class="ibtn" data-icon="play" title="试听"></button></span></div>
+      <div class="li"><span style="color:var(--ab-rec)">●</span><span>Take 4</span><small>录音中</small></div>
+    </div>
+  </div>
+  <div class="card soft desk-only">
+    <div class="ph"><span class="lbl">Take 2 裁剪</span><span class="r lbl">拖泳道两端的括号也行</span></div>
+    <div class="kv"><span>裁头</span><span class="mono" data-contrast>0.12 s</span></div>
+    <div class="kv"><span>裁尾</span><span class="mono" data-contrast>0.80 s</span></div>
+    <div class="ph"><button class="btn sm">回放（歌词同步高亮）</button><button class="btn sm ghost danger r">删除 take</button></div>
+  </div>
+</template>
+</body>
+</html>

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnyBeats · AI 写词面板</title>
+<link rel="stylesheet" href="shared.css">
+<script src="shared.js" defer></script>
+</head>
+<!-- 画面 3：AI 面板。顶上写明当前 Worker；按已写内容续写 2 小节，结果以虚线行预览在网格里，逐行或全部采用。改押韵、按拍子增减字数是另外两个动作。 -->
+<body data-screen="ai" data-playing="0" data-played="0.62" data-ghost="1" data-panel="ai" data-mtab="ai" data-sheet="tall" data-mfold="0,1"
+      data-pos-bar="10 · 2 · 1" data-pos-time="0:24.0 / 1:52" data-status-right="AI 结果是预览，采用前不改动歌词">
+<template id="status-left"><span>虚线行 = AI 预览</span><span><kbd>⌘Enter</kbd> 全部采用</span><span><kbd>Esc</kbd> 放弃</span><span><kbd>⌘Z</kbd> 采用后也能撤销</span></template>
+<template id="panel">
+  <div class="card soft">
+    <div class="ph"><span class="dot"></span><span data-contrast>Worker：本机 Claude CLI</span><button class="btn sm ghost r">切换</button></div>
+    <span class="lbl desk-only">已登录 · 走你这个 Alphie Agent 的 Worker，不在页面里存 Key</span>
+  </div>
+  <div class="seg"><button class="on">续写</button><button>改押韵</button><button>按拍子调字数</button></div>
+  <div class="kv desk-only"><span class="muted">参考</span><span data-contrast>已写的 10 小节 · BPM 92</span></div>
+  <div class="kv"><span class="muted">续写</span><span data-contrast>2 小节 · 跟主歌 2 押 ai</span></div>
+  <div class="field area desk-only"><span class="ph-t">可选：补一句要求，例如「讲从地下室到舞台」。没写过词时这里就是“按主题写一段”。</span></div>
+  <div class="card">
+    <div class="ph"><span class="lbl">预览 · 第 11–12 小节</span><span class="r lbl">8 秒前</span></div>
+    <div class="diff"><span class="chip r-ai">ai</span><ins>一句一句把门敲开</ins><button class="ibtn r" title="只采用这行">✓</button></div>
+    <div class="diff"><span class="chip r-ai">ai</span><ins>汗水换来今天的喝彩</ins><button class="ibtn r" title="只采用这行">✓</button></div>
+    <div class="ph"><button class="btn sm primary">全部采用</button><button class="btn sm">再写一版</button><button class="btn sm ghost r">放弃</button></div>
+  </div>
+  <div class="card soft desk-only">
+    <span class="lbl">选中第 2 小节时可用</span>
+    <div class="diff"><span class="muted">改押韵</span><del>拉得很长</del><span>→</span><ins>拉成一行</ins></div>
+    <div class="diff"><span class="muted">调字数</span><span>10 字 → <b>8 字</b>，每拍 2 字</span></div>
+  </div>
+</template>
+</body>
+</html>

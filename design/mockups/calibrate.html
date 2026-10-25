@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnyBeats · 首次录音：延迟校准</title>
+<link rel="stylesheet" href="shared.css">
+<script src="shared.js" defer></script>
+</head>
+<!-- 画面 2b：第一次点录音时，录音面板先走延迟校准（3 步），网格仍在左边可看可改。 -->
+<body data-screen="calibrate" data-playing="0" data-played="0" data-panel="rec" data-mtab="rec" data-sheet="tall" data-mfold="1,2"
+      data-pos-bar="01 · 1 · 1" data-pos-time="0:00.0 / 1:52" data-status-right="每台设备校准一次，结果记在本机">
+<template id="status-left"><span>首次录音 · 延迟校准第 2 步 / 3</span><span><kbd>Esc</kbd> 跳过</span></template>
+<template id="panel">
+  <div class="ph"><h3>录音前先校准延迟</h3><span class="r lbl">2 / 3</span></div>
+  <div class="steps"><i class="on"></i><i class="on"></i><i></i></div>
+  <div class="list">
+    <div class="li"><span class="check on"></span><span>戴上耳机，音量调到平时录音的大小</span></div>
+    <div class="li on"><span class="radio on"></span><span data-contrast>听到「嘀」就对着麦克风说「嗒」，共 8 次</span></div>
+    <div class="li"><span class="radio"></span><span class="muted">确认结果，之后每次录音自动补偿</span></div>
+  </div>
+  <div class="taps" title="已完成 5 / 8 次"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i><i></i></div>
+  <div class="card soft">
+    <span class="lbl">目前测到的平均延迟（5 / 8 次）</span>
+    <span class="big-num" data-contrast>46 ms</span>
+    <span class="lbl desk-only">有线耳机通常 20–60 ms；超过 120 ms 多半是蓝牙。</span>
+  </div>
+  <div class="ph"><button class="btn ghost">跳过，以后再说</button><button class="btn r">重来</button></div>
+</template>
+</body>
+</html>

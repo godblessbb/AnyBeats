@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnyBeats · 编辑器（播放中）</title>
+<link rel="stylesheet" href="shared.css">
+<script src="shared.js" defer></script>
+</head>
+<!-- 画面 1：编辑器主界面，播放中。第 6 小节第 5 格为当前演唱位置；句尾按韵母标色；右侧押韵面板给出同韵候选（本地韵表）。 -->
+<body data-screen="editor" data-playing="1" data-now="6,5" data-played="0.47" data-panel="rhyme" data-peek="1" data-mtab="write">
+<template id="panel">
+  <div class="ph"><h3>句尾 <span class="chip r-ian">眼 yǎn · ian</span></h3><span class="r lbl">第 6 小节</span></div>
+  <div class="seg desk-only" title="字数">
+    <button>1 字</button><button class="on">2 字</button><button>3 字</button><button>4 字</button>
+  </div>
+  <div class="seg desk-only" title="声调筛选">
+    <button class="on">不限</button><button>平声</button><button>仄声</button><button>1 声</button><button>2 声</button><button>3 声</button><button>4 声</button>
+  </div>
+  <div class="words">
+    <span class="word drag" title="拖到格子里">从前<small>2</small></span>
+    <span class="word">眼前<small>2</small></span>
+    <span class="word">无边<small>1</small></span>
+    <span class="word">失眠<small>2</small></span>
+    <span class="word">信念<small>4</small></span>
+    <span class="word">明天<small>1</small></span>
+    <span class="word desk-only">永远<small>3</small></span>
+    <span class="word desk-only">底线<small>4</small></span>
+    <span class="word desk-only">翻篇<small>1</small></span>
+    <span class="word desk-only">霓虹店<small>4</small></span>
+    <span class="word desk-only">兑现<small>4</small></span>
+    <span class="word desk-only">再见<small>4</small></span>
+  </div>
+  <div class="seg desk-only" title="词性">
+    <button class="on">全部 48</button><button>名词 21</button><button>动词 14</button><button>形容词 9</button><button>其他 4</button>
+  </div>
+  <div class="field desk-only"><span class="ph-t">主题联想：如 街头、夜晚、兄弟</span><span class="r">换一批</span></div>
+  <div class="note info desk-only"><span data-icon="info"></span><span>候选来自<b>本机韵表</b>，不调用 AI。拖到格子里放下；格子里的词也能拖走。</span></div>
+</template>
+</body>
+</html>
