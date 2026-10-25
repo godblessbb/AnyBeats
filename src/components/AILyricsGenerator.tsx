@@ -459,7 +459,7 @@ export default function AILyricsGenerator({ onGenerate, currentBpm }: AILyricsGe
 
               <div className="rhyme-buttons">
                 <button
-                  onClick={generateRhymeWords}
+                  onClick={() => generateRhymeWords()}
                   disabled={isGeneratingRhymes || !selectedRhyme}
                   className="generate-button"
                 >

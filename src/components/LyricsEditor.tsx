@@ -53,7 +53,6 @@ export default function LyricsEditor({ currentBeat, isPlaying, generatedLyrics, 
   // 键盘导航状态
   const [selectedCell, setSelectedCell] = useState<{ measureIndex: number; cellIndex: number } | null>(null);
   const [keyboardNavMode, setKeyboardNavMode] = useState(false);  // 是否处于键盘导航模式
-  const editorRef = useRef<HTMLDivElement>(null);
   const isComposingRef = useRef(false);  // 跟踪中文输入法状态
   const clipboardRef = useRef<{ text: string; isAccented: boolean } | null>(null);  // 复制的内容
 
