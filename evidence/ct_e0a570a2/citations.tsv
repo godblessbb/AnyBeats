@@ -1,0 +1,194 @@
+# 设计稿 design/AGENT_DESIGN.md 里每一处「文件:行号」引用，和那一行里应当出现的字样。
+# 列：仓库(anybeats|alphie)	路径	行号	期望字样（那一行去掉首尾空白后的前 60 个字符）
+# 做法：check_citations.py --dump 打出每处引用对应的实际那一行 → 逐行对着稿里的说法人工核对、改掉对不上的行号 → 冻结成这张表。
+# 由 check_citations.py 核对；Alphie 以 /opt/Alphie 为根，AnyBeats 以本仓库为根。
+anybeats	design/DESIGN_v3.md	103	- **AI 一次性填入**：静态版不出按钮。`paint.html` 右栏画了接上 AI 后的样子（虚线框 + 「接入
+anybeats	design/DESIGN_v3.md	114	### 五、AI 选区润色（接入后）
+anybeats	design/DESIGN_v3.md	121	> **这一版作废了，没有上屏**
+anybeats	design/DESIGN_v3.md	127	按钮「再试一次 / 看 AI 原文」。表格内容和 `full.html` 逐字一致（脚本实测）。
+anybeats	design/DESIGN_v3.md	190	3. **AI 一次填韵撞上已经写了的字怎么办？**
+anybeats	design/DESIGN_v3.md	191	- A（视觉稿现在的做法，推荐）：**跳过**。只填空着的韵脚位置，已写的字不动；如果已写的字韵母对不上，照样只提示。
+anybeats	package.json	10	"build": "tsc -b && vite build",
+anybeats	src/ai/AiProvider.ts	78	export function parseAiLyrics(text: string): AiLyricData {
+anybeats	src/ai/AlphieBridgeProvider.ts	21	export const BRIDGE_REQUEST = 'alphie.canvas.request';
+anybeats	src/ai/AlphieBridgeProvider.ts	22	export const BRIDGE_RESPONSE = 'alphie.canvas.response';
+anybeats	src/ai/AlphieBridgeProvider.ts	24	export type BridgeCapability = 'worker.status' | 'ai.lyrics'
+anybeats	src/ai/FakeProvider.ts	23	export class FakeProvider implements AiProvider {
+anybeats	src/ai/prompt.ts	14	export function buildPrompt(req: AiRequest): { system: strin
+anybeats	src/audio/MicInputSource.ts	78	navigator.mediaDevices.getUserMedia({
+anybeats	src/components/ExportPanel.tsx	20	function download(name: string, data: string | Uint8Array, m
+anybeats	src/components/ExportPanel.tsx	57	type="file"
+anybeats	src/components/TrackStrip.tsx	46	? '需要重新选择文件'
+anybeats	src/components/TrackStrip.tsx	55	type="file"
+anybeats	src/core/__tests__/locks.test.ts	132	it('锁定的格子：整行 / 整列 / 单格都不通过（locked）', () => {
+anybeats	src/core/__tests__/locks.test.ts	141	it('锁定的格子里加字也不行', () => {
+anybeats	src/core/__tests__/locks.test.ts	147	it('锁了韵脚位置：韵脚字不许改，同格的非韵脚字可以改', () => {
+anybeats	src/core/__tests__/locks.test.ts	155	it('保持骨架：改长度、加字、删字都不通过（skeleton）；关掉保持骨架就可以', () => {
+anybeats	src/core/__tests__/locks.test.ts	177	describe('一次填韵', () => {
+anybeats	src/core/__tests__/locks.test.ts	196	it('planRhymeFill 只给涂了色、一个字都没写的格子里的韵脚位置，跳过锁定位置', () => {
+anybeats	src/core/__tests__/locks.test.ts	226	it('写到已经有字的格子：整份作废，返回原网格', () => {
+anybeats	src/core/__tests__/locks.test.ts	236	it('写到同格的非韵脚字：整份作废', () => {
+anybeats	src/core/__tests__/locks.test.ts	246	it('写到锁定位置、没涂色的格子、空白处：整份作废', () => {
+anybeats	src/core/__tests__/locks.test.ts	258	describe('选区润色', () => {
+anybeats	src/core/__tests__/locks.test.ts	289	it('改到锁定的字：整份作废', () => {
+anybeats	src/core/__tests__/locks.test.ts	314	it('保持骨架时 AI 改了 flow：整份作废', () => {
+anybeats	src/core/aiEdit.ts	26	export function planRhymeFill(grid: Grid, ctx: LockContext):
+anybeats	src/core/aiEdit.ts	33	return rhymeSlots(grid, ctx.rules, ctx.paint)
+anybeats	src/core/aiEdit.ts	36	}
+anybeats	src/core/aiEdit.ts	53	export function applyRhymeFill(grid: Grid, ctx: LockContext,
+anybeats	src/core/aiEdit.ts	60	const text = Array.from(a.text.trim()).slice(0, 1).join('');
+anybeats	src/core/aiEdit.ts	66	const check = checkChanges(grid, out, { ...ctx, scope, keepS
+anybeats	src/core/aiEdit.ts	67	const extra = check.changes.filter((c) => !allowed.has(c.abs
+anybeats	src/core/aiEdit.ts	70	return { ok, grid: ok ? out : grid, check: { ...check, ok, v
+anybeats	src/core/aiEdit.ts	71	}
+anybeats	src/core/aiEdit.ts	115	return { context, lines, options: { ...options, keepSkeleton
+anybeats	src/core/aiEdit.ts	122	export function applyPolish(
+anybeats	src/core/aiEdit.ts	134	if (w) out = setWordText(out, w.word.id, t.text);
+anybeats	src/core/aiEdit.ts	151	const keepSkeleton = !options.allowFlow && options.keepSkele
+anybeats	src/core/aiEdit.ts	154	}
+anybeats	src/core/grid.ts	343	export function insertWord(grid: Grid, absTick: number, len:
+anybeats	src/core/locks.ts	26	export function isCellLocked(locks: Locks, barId: string, be
+anybeats	src/core/locks.ts	74	export function lockedWordTicks(grid: Grid, ctx: LockContext
+anybeats	src/core/locks.ts	79	if (ctx.locks.rhyme) for (const s of rhymeSlots(grid, ctx.ru
+anybeats	src/core/locks.ts	81	}
+anybeats	src/core/locks.ts	83	export type ChangeReason = 'outside' | 'locked' | 'skeleton'
+anybeats	src/core/locks.ts	114	export function checkChanges(before: Grid, after: Grid, opts
+anybeats	src/core/locks.ts	150	export const CHANGE_REASON_TEXT: Record<ChangeReason, string
+anybeats	src/core/rhyme/syllable.ts	1	import { pinyin } from 'pinyin-pro';
+anybeats	src/core/rhyme/syllable.ts	98	export function analyze(text: string): (Syllable | null)[] {
+anybeats	src/core/rhymeRules.ts	44	export const RHYME_MATCH_MODE: RhymeMatchMode = 'strict';
+anybeats	src/core/rhymeRules.ts	78	export function finalOfChar(ch: string): string | null {
+anybeats	src/core/rhymeRules.ts	84	export function finalsMatch(got: string, want: string, mode:
+anybeats	src/core/rhymeRules.ts	88	if (mode === 'strict') return a === b;
+anybeats	src/core/rhymeRules.ts	290	export function rhymeSlots(grid: Grid, rules: RhymeRule[], p
+anybeats	src/core/rhymeRules.ts	309	ok: got === null || !want ? null : finalsMatch(got, want, mo
+anybeats	src/core/rhymeRules.ts	318	export function mismatches(grid: Grid, rules: RhymeRule[], p
+anybeats	src/engine/aiController.ts	57	setOptions(patch: Partial<PolishOptions>) {
+anybeats	src/engine/aiController.ts	62	}
+anybeats	src/engine/aiController.ts	136	const result = req.options.keepSkeleton ? { texts: items.map
+anybeats	src/engine/editorStore.ts	344	if (kind !== 'lock' && after.grid !== before.grid) {
+anybeats	src/engine/editorStore.ts	356	private lockViolations(before: Doc, after: Doc): Change[] {
+anybeats	src/engine/editorStore.ts	866	applyAiFill(answers: FillAnswer[]): { ok: boolean; violation
+anybeats	src/engine/editorStore.ts	872	this.exec(`AI 改写 填入 ${answers.length} 个韵脚`, 'ai', (d) => ({
+anybeats	src/engine/editorStore.ts	877	applyAiPolish(scope: string[], options: PolishOptions, resul
+anybeats	src/engine/editorStore.ts	883	this.exec(`AI 改写 ${this.describeKeys(scope)}`, 'ai', (d) =>
+anybeats	src/main.tsx	12	const storage = createStorage();
+anybeats	src/main.tsx	20	if (import.meta.env.VITE_ANYBEATS_RECORDING === '1') {
+anybeats	src/main.tsx	29	if (import.meta.env.VITE_ANYBEATS_AI === '1') {
+anybeats	src/main.tsx	31	services.ai = new AiController(new AlphieBridgeProvider(), s
+anybeats	src/storage/StorageAdapter.ts	10	export interface StorageAdapter extends KeyValueStore {
+anybeats	src/storage/StorageAdapter.ts	68	export function createStorage(getStorage: () => Storage | un
+anybeats	src/storage/StorageAdapter.ts	76	return new MemoryStorage('画布里拿不到本机存储');
+anybeats	src/storage/library.ts	23	export const INDEX_KEY = 'anybeats.library.v2';
+anybeats	src/storage/library.ts	29	const BACKUP_PREFIX = 'anybeats.backup.v2.';
+anybeats	src/storage/takeStore.ts	155	export async function createTakeStore(storage: StorageAdapte
+anybeats	vite.config.ts	10	function inlineIntoHtml(): Plugin {
+alphie	CLAUDE.md	45	- **判断方法**：如果产物是"用户的"（用户的歌、文章、博客），归 CLIENT_LOCAL；如果产物是"Alphi
+alphie	CLAUDE.md	46	- 🔴 **agent 产物（账本 / agent canvas / 抓取结果）按上面这条判断方法归 DATA_ROOT
+alphie	CLAUDE.md	62	15. **一个 agent 的专属代码，落它自己的模块（硬性约束）**。给某个**具体 agent** 写专属路由、专
+alphie	agents/agent_package.py	250	FIELD_CLASS: Dict[str, str] = {f.path: f.cls for f in FIELDS
+alphie	agents/agent_residency.py	63	LOCAL_ONLY_MESSAGE = ("这个 Agent 设成了「只在这台电脑上」：它的定义不会送到云端，所以不能
+alphie	agents/agent_share.py	384	def build_install_config(a, *, id_map: dict, new_workflow_id
+alphie	agents/shell_declaration.py	205	def external_url_problem(url: Any) -> Optional[str]:
+alphie	agents/shell_declaration.py	516	_INSTANCE_SUFFIX = re.compile(r"_(?:u\d+|shr[0-9a-z]+)$")
+alphie	agents/workspace_spec.py	288	CANVAS_MAX_BYTES = 512 * 1024
+alphie	config/agent_packages.py	25	NAMES = (
+alphie	config/identity.py	62	CLIENT_TYPE = "cloud" if DEPLOYMENT_MODE == "cloud" else "lo
+alphie	config/model_tiers.json	37	{"model": "deepseek-flash", "tier": "daily",
+alphie	config/paths.py	807	def get_agent_packages_root() -> Path:
+alphie	config/paths.py	1699	def get_user_agent_workspace_dir(username, agent_name: str,
+alphie	docs/admin_channel_separation.md	515	- 编程助手、CMO、AnyBeats 这类都属于这里。
+alphie	docs/admin_channel_separation.md	588	所以一个想录音、读本机工程、调自己 Agent 的画布在用户通道里做不出来。AnyBeats 就是这样差点被塞进仓库。
+alphie	docs/admin_channel_separation.md	600	- `mic.record`：父页录音（复用顶层页面已有的权限流），把音频交给画布。画布不直接拿麦克风：§5.2 已实测
+alphie	docs/admin_channel_separation.md	602	- `agent.call`：以主人身份给**这个** Agent 发一条消息，流式回传。不能点名别的 Agent，有频
+alphie	docs/admin_channel_separation.md	619	**定下的方向**：`mic.record` 走父页录音，画布 iframe 保持 `sandbox="allow-sc
+alphie	docs/agent_code_package_design.md	340	规则：加新导出 = minor +1；删 / 改签名 = major +1，旧 major 至少保留一个发布周期；`_L
+alphie	docs/agent_code_package_design.md	349	- 如果 Q1 选 A（CMO 留在 prod），CMO 包要上 prod 就是一次**显式的「在 prod 上装包」动
+alphie	docs/agent_code_package_design.md	440	- **每个包一个私有 GitHub 仓库**（`alphie-pkg-quant`、`alphie-pkg-cmo`，
+alphie	docs/agent_code_package_design.md	571	- **推荐：单独私有 git 仓库，检出在 root 自有的 `0700` 目录里**。编程任务只能在 git 仓库里
+alphie	docs/agent_code_package_design.md	577	**Q4. 核心约束 15 是否扩成「私有 Agent 代码不进平台仓库」并加闸？**
+alphie	docs/agent_code_package_design.md	586	- **推荐一个包一个仓库**：合并闸、测试、回退都按仓库算；量化和 CMO 互不相关，共用一个仓库会让一个包的红测试挡
+alphie	docs/agent_code_package_design.md	589	- **推荐 CMO 私有件**（Q1 定了就能排）；若 Q1 迟迟定不了，用 **sts2_coach**（3297
+alphie	docs/agent_package_format.md	30	### 1.1 三类加一类
+alphie	docs/agent_package_format.md	165	### 3.7 定义之外、按归属挂在 agent 上的东西
+alphie	docs/dev_as_client_data_ledger.md	154	| `T:memory/engine/schema.py::token_usage` | `memory/engine/
+alphie	experiments/agent_code_placement/design.md	46	| root 的 Flask 进程（进程内 import） | `web/`、`agents/`、A 的包 | **只能
+alphie	experiments/agent_code_placement/design.md	47	| 用户登录后的浏览器，**同源** | `web/static/js/*`、A 的 `/pkg-static/` |
+alphie	experiments/agent_code_placement/design.md	48	| 用户浏览器，**不透明源 / 独立站点框** | agent canvas、外部页 Home | 谁都可以：框里的脚
+alphie	experiments/agent_code_placement/design.md	148	| **N2 沙箱框页 + 父页面代理** | Q4 前端 | 平台渲染器在 agent 页画 `<iframe san
+alphie	experiments/agent_code_placement/design.md	195	| S1 同源 `<script src="/pkg-static/quant/quant.js">`（今天 / A 的
+alphie	experiments/agent_code_placement/design.md	197	| S3 不透明源框 `sandbox="allow-scripts"` + 应答 CSP `sandbox allow
+alphie	experiments/agent_code_placement/design.md	235	| 父页面代理（N2） | 框借代理越权 | 白名单固定几种 op；agent id 取自父页面；路径只许在 `/api
+alphie	experiments/agent_code_placement/design.md	334	- **A. 保留，留给 CMO 这类 root 写、要进程内加载、要上 prod 的包；包名单里的 `quant` 一
+alphie	experiments/agent_code_placement/design.md	336	- **推荐 A**：11-12 已定 CMO 在 prod 属有意分享，CMO 的私有件（A 稿 P4b）要进程内加载
+alphie	experiments/agent_containers/design.md	212	- 私有 Agent 的页面 JS 必须进**不透明源沙箱框**：`sandbox="allow-scripts"`（不
+alphie	experiments/agent_containers/design.md	313	| P1a / P1b 加载器（已合并） | **需拍板**（T7） | 量化不再是它的使用者；包名单里唯一一行是 `q
+alphie	experiments/agent_containers/design.md	420	| T7 | 代码包加载器（P1a / P1b）和包名单里的 `quant` 行 | A 代码冻结保留、删 `quant
+alphie	scripts/capability_contract.py	429	name="agent_code_package",
+alphie	scripts/capability_contract.py	434	canary="quant",
+alphie	scripts/capability_contract.py	435	status="proposed",
+alphie	scripts/capability_contract.py	569	name="vendor_egress",
+alphie	scripts/capability_contract.py	591	name="audit_metering",
+alphie	scripts/capability_contract.py	1632	def _enum_agent_packages(repo_root: Path, seam: Seam) -> Lis
+alphie	scripts/capability_contract.py	1698	if seam.status == "proposed" and n >= MIN_IMPLEMENTERS:
+alphie	scripts/install_agent_package_root.py	33	parser.add_argument("--check", action="store_true", help="只判
+alphie	scripts/usage_attribution_guard.py	17	N  要么传 ``agent_id=``（不是字面量 None），要么它的标签在 NOT_AN_AGENT 名单里 ——
+alphie	scripts/usage_attribution_guard.py	20	S  ``agent_id=`` 的值不许来自客户端 / 调用方自报（``request`` / ``body`` /
+alphie	security/package_trust.py	67	if stat.S_ISLNK(mode):
+alphie	security/package_trust.py	113	def judge_tree(top: str) -> List[str]:
+alphie	security/package_trust.py	159	def judge_package(pkg_dir: str) -> List[str]:
+alphie	skills/agent_creation.md	865	blueprints, jobs and frontend files; **it has no key for too
+alphie	skills/agent_creation.md	870	migration is paused behind two open design decisions
+alphie	skills/agent_creation.md	874	that needs server code: **stop and ask the user where it sho
+alphie	skills/agent_creation.md	981	| **Edits the user's own content** (example: AnyBeats) | the
+alphie	tasks/coding_task_auto_lane.py	170	def under_agent_packages_root(repo: Any) -> bool:
+alphie	tasks/coding_task_merge.py	121	PACKAGE_SELFTEST_ARGS = ("-m", "web.services.agent_packages"
+alphie	web/auth.py	613	token = request.cookies.get("token")
+alphie	web/models_config.py	96	"input": 0.30,
+alphie	web/models_config.py	97	"output": 1.20,
+alphie	web/models_config.py	551	DEFAULT_API_MODEL = "deepseek-flash"
+alphie	web/routes/admin.py	1370	@bp.route('/api/admin/agent-packages/status', methods=['GET'
+alphie	web/routes/agent_workspace_api.py	37	return _bad("NOT_THE_WORKSPACE_AUTHORITY", "这台电脑连着云端，agent 产
+alphie	web/routes/agents.py	1389	def _require_agent_owner(agent_id):
+alphie	web/routes/agents.py	1739	grant = _egress.admit(_egress.KIND_CHAT, 'deepseek', model,
+alphie	web/routes/agents.py	2888	@bp.route('/api/agents/<agent_name>/canvas/<filename>', meth
+alphie	web/routes/agents.py	2907	resp.headers["Content-Security-Policy"] = "sandbox allow-scr
+alphie	web/routes/agents.py	2909	resp.headers["Cache-Control"] = "no-store"
+alphie	web/routes/settings.py	300	PRO_DAILY_USD_LIMIT = float(_os.environ.get('ALPHIE_PRO_DAIL
+alphie	web/routes/settings.py	471	BLOCK_QUOTA = 'FREE_QUOTA_EXCEEDED'
+alphie	web/routes/settings.py	472	BLOCK_MODEL = 'MODEL_NEEDS_OWN_KEY'
+alphie	web/routes/settings.py	504	def chat_funding_verdict(uid, provider_canon: str, model: st
+alphie	web/services/agent_model_channel.py	308	temperature=0.7,
+alphie	web/services/agent_model_channel.py	3245	def complete_for(*, user_id, agent_id: str, operation: str,
+alphie	web/services/agent_package_api.py	18	API = (1, 0)
+alphie	web/services/agent_package_api.py	22	PROVIDES = frozenset({
+alphie	web/services/agent_packages.py	52	_REQUIRED = ("schema", "name", "platform_api", "deployments"
+alphie	web/services/agent_packages.py	53	_OPTIONAL = ("blueprints", "jobs", "frontend", "workspace",
+alphie	web/services/agent_packages.py	56	_PREFIX_RE = re.compile(r"^/api/[a-z0-9][a-z0-9_\-]*(?:/[a-z
+alphie	web/services/agent_packages.py	62	STATIC_URL_PREFIX = "/pkg-static"
+alphie	web/services/agent_packages.py	162	raise PackageRejected("bad_manifest", f"缺字段 {missing}" if mi
+alphie	web/services/agent_packages.py	170	if pname not in names_cfg.NAMES:
+alphie	web/services/agent_packages.py	256	def _static_blueprint(name: str, pkg_dir: Path):
+alphie	web/services/agent_packages.py	276	def frontend_table() -> Dict[str, Dict[str, Any]]:
+alphie	web/services/agent_packages.py	320	def self_timer_hits(src_dir: Path) -> List[str]:
+alphie	web/services/agent_packages.py	485	if deployment != "local_node":
+alphie	web/services/agent_packages.py	490	if not os.path.lexists(str(root)):
+alphie	web/services/agent_workspace_store.py	9	同一个目录里照做一份**缓存**（dev 上的 agent 工具还要从本机盘读）。prod 不收就是没写成，dev 一个
+alphie	web/services/agent_workspace_store.py	11	读   dev 上的工作区读接口（``/api/agents/<id>/ledger``、canvas、``/api/f
+alphie	web/services/agent_workspace_store.py	44	MAX_FILE_BYTES = 50 * 1024 * 1024
+alphie	web/services/agent_workspace_store.py	139	def put_on_node(username: str, agent_id: str, rel: str, data
+alphie	web/services/agent_workspace_store.py	390	def local_only_refusal(username: str, spec: Dict[str, Any])
+alphie	web/services/agent_workspace_store.py	411	def write_artifact(username: str, spec: Dict[str, Any], rel:
+alphie	web/services/agent_workspace_store.py	910	def write_file(user_id: int, username: str, agent_id: str, r
+alphie	web/services/tool_args.py	69	MAX_CONSECUTIVE_INVALID_ARGS = 2
+alphie	web/services/vendor_egress.py	341	def admit(kind: str, provider: Optional[str], model: str, *,
+alphie	web/static/js/modules/workspace-renderer.js	79	function _wsLoadPackageModules() {
+alphie	web/static/js/modules/workspace-renderer.js	173	function _wsAgentModuleBase(agentId) {
+alphie	web/static/js/modules/workspace-renderer.js	182	function _wsMountAgentModule(container, containerId, agentId
+alphie	web/static/js/modules/workspace-renderer.js	204	if (typeof window[fnName] === 'function') window[fnName](con
+alphie	web/static/js/modules/workspace-renderer.js	263	const WS_EXTERNAL_SANDBOX = 'allow-scripts allow-same-origin
+alphie	web/static/js/modules/workspace-renderer.js	325	function renderWorkspace(containerId, agentId, agentConfig,
+alphie	web/static/js/modules/workspace-renderer.js	333	if (canvasTab && canvasTab.render === 'external') {
+alphie	web/static/js/modules/workspace-sanitize.js	122	const CANVAS_SANDBOX = 'allow-scripts';
+alphie	web/templates/login.html	1035	document.cookie = 'token=' + data.token + ';path=/;max-age='
+alphie	web/token_tracker.py	141	AGENT_CHAT_OPERATIONS = frozenset({OP_AGENT_CHAT, OP_AGENT_M

@@ -1,0 +1,99 @@
+# 设计稿里提到的函数 / 常量 / 字面量，和它们所在的文件。check_citations.py 核对定义确实在那个文件里（不看行号）。
+# 列：仓库(anybeats|alphie)	路径	定义里应当出现的字样
+anybeats	src/core/aiEdit.ts	export function planRhymeFill(
+anybeats	src/core/aiEdit.ts	export function applyRhymeFill(
+anybeats	src/core/aiEdit.ts	export function applyPolish(
+anybeats	src/core/aiEdit.ts	export function buildPolishRequest(
+anybeats	src/core/aiEdit.ts	keepSkeleton: true, allowFlow: false
+anybeats	src/core/locks.ts	export function checkChanges(
+anybeats	src/core/locks.ts	export function lockedWordTicks(
+anybeats	src/core/locks.ts	export function isCellLocked(
+anybeats	src/core/locks.ts	export type ChangeReason =
+anybeats	src/core/locks.ts	export const CHANGE_REASON_TEXT
+anybeats	src/core/rhymeRules.ts	export function finalOfChar(
+anybeats	src/core/rhymeRules.ts	export function finalsMatch(
+anybeats	src/core/rhymeRules.ts	export function rhymeSlots(
+anybeats	src/core/rhymeRules.ts	export function mismatches(
+anybeats	src/core/rhymeRules.ts	export const RHYME_MATCH_MODE: RhymeMatchMode = 'strict'
+anybeats	src/core/rhyme/syllable.ts	export function analyze(
+anybeats	src/core/rhyme/syllable.ts	from 'pinyin-pro'
+anybeats	src/core/grid.ts	export function insertWord(
+anybeats	src/engine/editorStore.ts	export class EditorStore
+anybeats	src/engine/editorStore.ts	applyAiFill(answers: FillAnswer[])
+anybeats	src/engine/editorStore.ts	applyAiPolish(scope: string[]
+anybeats	src/engine/editorStore.ts	private lockViolations(
+anybeats	src/engine/aiController.ts	setOptions(patch: Partial<PolishOptions>)
+anybeats	src/ai/AlphieBridgeProvider.ts	export class AlphieBridgeProvider
+anybeats	src/ai/AlphieBridgeProvider.ts	'alphie.canvas.request'
+anybeats	src/ai/AlphieBridgeProvider.ts	'alphie.canvas.response'
+anybeats	src/ai/AlphieBridgeProvider.ts	'worker.status' | 'ai.lyrics'
+anybeats	src/ai/prompt.ts	export function buildPrompt(
+anybeats	src/ai/AiProvider.ts	export function parseAiLyrics(
+anybeats	src/ai/FakeProvider.ts	export class FakeProvider
+anybeats	src/storage/StorageAdapter.ts	export function createStorage(
+anybeats	src/storage/StorageAdapter.ts	export interface StorageAdapter extends KeyValueStore
+anybeats	src/main.tsx	VITE_ANYBEATS_AI
+anybeats	src/main.tsx	VITE_ANYBEATS_RECORDING
+anybeats	vite.config.ts	function inlineIntoHtml(
+alphie	web/services/vendor_egress.py	def admit(
+alphie	web/services/vendor_egress.py	KIND_CHAT
+alphie	web/services/agent_model_channel.py	def complete_for(
+alphie	web/routes/agents.py	def _require_agent_owner(
+alphie	web/routes/agents.py	def get_agent_canvas(
+alphie	web/routes/agents.py	initiator='agent_session:autotitle'
+alphie	web/auth.py	def require_auth(
+alphie	web/services/agent_workspace_store.py	def write_artifact(
+alphie	web/services/agent_workspace_store.py	def put_on_node(
+alphie	web/services/agent_workspace_store.py	def local_only_refusal(
+alphie	web/services/agent_workspace_store.py	def write_file(
+alphie	web/services/agent_workspace_store.py	MAX_FILE_BYTES = 50 * 1024 * 1024
+alphie	config/paths.py	def get_user_agent_workspace_dir(
+alphie	config/paths.py	def get_agent_packages_root(
+alphie	config/paths.py	ALPHIE_AGENT_PACKAGES_ROOT
+alphie	web/services/agent_packages.py	MANIFEST = "alphie_package.json"
+alphie	web/services/agent_packages.py	def read_manifest(
+alphie	web/services/agent_packages.py	def frontend_table(
+alphie	web/services/agent_packages.py	def _static_blueprint(
+alphie	web/services/agent_packages.py	def self_timer_hits(
+alphie	web/services/agent_packages.py	STATIC_URL_PREFIX = "/pkg-static"
+alphie	web/services/agent_packages.py	--selftest
+alphie	web/services/agent_packages.py	"module_base"
+alphie	web/services/agent_package_api.py	API = (1, 0)
+alphie	web/services/agent_package_api.py	PROVIDES = frozenset(
+alphie	web/services/agent_package_api.py	"auth.require_auth"
+alphie	web/services/agent_package_api.py	"errors.safe_route"
+alphie	web/services/agent_package_api.py	"ui_text.say"
+alphie	config/agent_packages.py	NAMES = (
+alphie	config/agent_packages.py	"quant"
+alphie	scripts/capability_contract.py	name="agent_code_package"
+alphie	scripts/capability_contract.py	def _enum_agent_packages(
+alphie	scripts/capability_contract.py	name="vendor_egress"
+alphie	scripts/capability_contract.py	name="audit_metering"
+alphie	scripts/usage_attribution_guard.py	NOT_AN_AGENT
+alphie	security/package_trust.py	def judge_tree(
+alphie	security/package_trust.py	def judge_package(
+alphie	scripts/install_agent_package_root.py	"--check"
+alphie	web/static/js/modules/workspace-renderer.js	function renderWorkspace(
+alphie	web/static/js/modules/workspace-renderer.js	function _wsAgentModuleBase(
+alphie	web/static/js/modules/workspace-renderer.js	function _wsMountAgentModule(
+alphie	web/static/js/modules/workspace-renderer.js	function _wsLoadPackageModules(
+alphie	web/static/js/modules/workspace-renderer.js	const WS_EXTERNAL_SANDBOX
+alphie	web/static/js/modules/workspace-sanitize.js	const CANVAS_SANDBOX = 'allow-scripts'
+alphie	agents/shell_declaration.py	def external_url_problem(
+alphie	agents/shell_declaration.py	_INSTANCE_SUFFIX = re.compile(
+alphie	agents/workspace_spec.py	CANVAS_MAX_BYTES = 512 * 1024
+alphie	web/routes/settings.py	def chat_funding_verdict(
+alphie	web/routes/settings.py	PRO_DAILY_USD_LIMIT
+alphie	web/routes/settings.py	BLOCK_QUOTA = 'FREE_QUOTA_EXCEEDED'
+alphie	web/routes/settings.py	BLOCK_MODEL = 'MODEL_NEEDS_OWN_KEY'
+alphie	web/models_config.py	DEFAULT_API_MODEL = "deepseek-flash"
+alphie	web/token_tracker.py	AGENT_CHAT_OPERATIONS = frozenset(
+alphie	web/services/tool_args.py	MAX_CONSECUTIVE_INVALID_ARGS = 2
+alphie	tasks/coding_task_merge.py	PACKAGE_SELFTEST_ARGS
+alphie	tasks/coding_task_auto_lane.py	def under_agent_packages_root(
+alphie	agents/agent_share.py	def build_install_config(
+alphie	agents/agent_package.py	FIELD_CLASS
+alphie	agents/agent_residency.py	LOCAL_ONLY_MESSAGE
+alphie	web/routes/admin.py	/api/admin/agent-packages/status
+alphie	web/routes/agent_workspace_api.py	NOT_THE_WORKSPACE_AUTHORITY
+alphie	config/identity.py	CLIENT_TYPE = "cloud" if DEPLOYMENT_MODE == "cloud" else "local_node"

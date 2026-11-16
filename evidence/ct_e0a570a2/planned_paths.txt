@@ -1,0 +1,15 @@
+# 设计稿里出现、但今天还不存在的路径：都是实施单 / 主会话要新建的（稿里也是这样写的）。
+# check_citations.py 核对：这里每一条都在稿里出现过；带目录的那些今天确实还不存在。
+agent/
+agent/install.py
+agent/tests/
+alphie_package.json
+install.py
+static/
+BUILD.json
+src/host/
+src/core/aiGate.ts
+src/core/__tests__/aiGate.test.ts
+aiGate.test.ts
+/opt/alphie-agent-packages
+/opt/alphie-agent-packages/anybeats/
