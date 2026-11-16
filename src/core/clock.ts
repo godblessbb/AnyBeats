@@ -7,7 +7,7 @@
  * - 位置单位是 1/16（STEPS_PER_BEAT = 4）；歌曲时间 = 第一拍偏移 + 位置 × 步长。
  */
 
-import { STEPS_PER_BAR, STEPS_PER_BEAT } from './grid';
+import { STEPS_PER_BAR, STEPS_PER_BEAT, TICKS_PER_BEAT } from './grid';
 
 export interface TimeSource {
   /** 单调递增的秒数，例如 AudioContext.currentTime */
@@ -61,6 +61,11 @@ export type ClockState = 'stopped' | 'playing';
 
 export function stepDuration(bpm: number): number {
   return 60 / bpm / STEPS_PER_BEAT;
+}
+
+/** 一个 tick 多少秒（每拍 48 tick） */
+export function tickDuration(bpm: number): number {
+  return 60 / bpm / TICKS_PER_BEAT;
 }
 
 export class Clock {

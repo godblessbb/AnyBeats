@@ -3,7 +3,7 @@ import { exportLrc, exportTxt, serializeProject } from '../core';
 import { EXAMPLES } from '../engine/demo';
 import { buildReaperZip, type StemChoice } from '../export/reaperZip';
 import { Icon } from './icons';
-import { useEditor, useLibrary, useRecorder, useServices, useTransport } from './services';
+import { useEditor, useLibrary, useRecorderMaybe, useServices, useTransport } from './services';
 
 type Format = 'txt' | 'lrc' | 'project' | 'rpp';
 
@@ -51,7 +51,7 @@ function ProjectList() {
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
   return (
-    <div className="proj-list" data-role="project-list">
+    <div className="blk" data-role="project-list" style={{ borderTop: 0, paddingTop: 0 }}>
       <input
         ref={importRef}
         type="file"
@@ -64,9 +64,10 @@ function ProjectList() {
           if (file) store.importProjectFile(await file.text(), file.name.replace(/\.(anybeats|json)$/i, ''));
         }}
       />
-      <div className="ph" style={{ marginBottom: 2 }}>
-        <span className="lbl">作品</span>
-        <button className="btn sm ghost r" data-role="new-project" onClick={() => store.newProject()}>
+      <div className="blk-h" style={{ marginBottom: 2 }}>
+        <b>作品</b>
+        <span className="spacer"></span>
+        <button className="btn sm ghost" data-role="new-project" onClick={() => store.newProject()}>
           新建
         </button>
         <button className="btn sm ghost" onClick={() => store.saveAs()}>
@@ -141,21 +142,19 @@ function ProjectList() {
   );
 }
 
-export function ExportPanel() {
+export function ExportPanel({ onClose }: { onClose: () => void }) {
   const { store, storage, transport, recorder } = useServices();
   const s = useEditor();
   const t = useTransport();
-  const rec = useRecorder();
-  const list = useLibrary();
-  const hasAudio = rec.takes.length > 0 || !!t.backing;
-  const [picked, setPicked] = useState<Record<Format, boolean>>({ txt: true, lrc: true, project: true, rpp: hasAudio });
-  const [stems, setStems] = useState<StemChoice>({ backing: true, takes: true, metronome: false, guide: false });
+  const rec = useRecorderMaybe();
+  const takes = rec?.takes ?? [];
+  const hasAudio = takes.length > 0 || !!t.backing;
+  const [picked, setPicked] = useState<Record<Format, boolean>>({ txt: true, lrc: true, project: true, rpp: false });
+  const [stems, setStems] = useState<StemChoice>({ backing: true, takes: true, metronome: false, guide: true });
   const [result, setResult] = useState<{ files: string[]; preview: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
-  const [showList, setShowList] = useState(false);
   const count = FORMATS.filter((f) => picked[f.key]).length + (picked.rpp ? 1 : 0);
-  const selected = rec.takes.find((x) => x.selected);
 
   const doExport = () => {
     const project = store.project;
@@ -174,9 +173,9 @@ export function ExportPanel() {
     if (picked.rpp) {
       try {
         const backing = transport.backingAudio();
-        const takes = recorder.allTakes();
-        const sampleRate = transport.audioContext()?.sampleRate ?? backing?.sampleRate ?? takes[0]?.sampleRate ?? 48000;
-        const out = buildReaperZip({ project, sampleRate, backing, takes, stems });
+        const all = recorder?.allTakes() ?? [];
+        const sampleRate = transport.audioContext()?.sampleRate ?? backing?.sampleRate ?? all[0]?.sampleRate ?? 48000;
+        const out = buildReaperZip({ project, sampleRate, backing, takes: all, stems });
         const name = `${base}.zip`;
         download(name, out.zip, 'application/zip');
         files.push(`${name}（${out.files.join('、')}）`);
@@ -188,16 +187,11 @@ export function ExportPanel() {
     setResult({ files, preview });
   };
 
-  const stemButtons: { key: keyof StemChoice; label: string; disabled: boolean; title: string }[] = [
-    { key: 'backing', label: '伴奏', disabled: !t.backing, title: t.backing ? '伴奏一轨' : '还没载入伴奏' },
-    {
-      key: 'takes',
-      label: selected ? `${selected.name} ★` : `Take ×${rec.takes.length}`,
-      disabled: rec.takes.length === 0,
-      title: rec.takes.length ? '每个 take 一轨：选用的那轨打开，其余静音' : '还没有录音',
-    },
-    { key: 'metronome', label: '节拍器', disabled: false, title: '节拍器渲染成一轨' },
-    { key: 'guide', label: '导唱', disabled: false, title: '导唱打点渲染成一轨' },
+  const stemButtons: { key: keyof StemChoice; label: string; disabled: boolean }[] = [
+    { key: 'backing', label: '伴奏', disabled: !t.backing },
+    ...(recorder ? [{ key: 'takes' as const, label: `Take ×${takes.length}`, disabled: takes.length === 0 }] : []),
+    { key: 'metronome', label: '节拍器', disabled: false },
+    { key: 'guide', label: '导唱', disabled: false },
   ];
 
   const saveInfo =
@@ -207,104 +201,82 @@ export function ExportPanel() {
         ? `保存失败：${s.save.message}`
         : s.save.kind === 'pending'
           ? '改动后 1 秒存一次 · 正在保存'
-          : `改动后 1 秒存一次${s.save.at ? ` · ${timeText(s.save.at)}` : ''}`;
+          : `改动后 1 秒存一次，撤销历史一起存${s.save.at ? ` · ${timeText(s.save.at)}` : ''}`;
 
   return (
-    <>
-      <div className="kv">
-        <span>
-          <span className={`dot${storage.persistent ? '' : ' warn'}`}></span>
-          <span data-contrast>{storage.persistent ? '本机自动保存' : '本次不保存'}</span>
-        </span>
-        <span className="muted">{saveInfo}</span>
+    <div className="pn xp" data-role="export-panel">
+      <div className="pn-h">
+        <h2>作品与导出</h2>
+        <button className="ibtn" aria-label="关闭作品与导出" title="关闭" onClick={onClose}>
+          <Icon.close />
+        </button>
       </div>
-      <button className="li mob-only li-btn" onClick={() => setShowList(!showList)}>
-        <span>作品列表（{list.length}）</span>
-        <span className="r">
-          <small>新建 · 另存为 · 打开 {showList ? '‹' : '›'}</small>
-        </span>
-      </button>
-      <div className={showList ? '' : 'desk-only'} style={{ flexDirection: 'column' }}>
-        <ProjectList />
-      </div>
-      <div>
-        <div className="ph" style={{ marginBottom: 2 }}>
-          <span className="lbl">导出</span>
+      <p className="note">
+        <i className={`dot${storage.persistent ? '' : ' warn'}`}></i>
+        <b>{storage.persistent ? '本机自动保存' : '本次不保存'}</b> · {saveInfo}
+      </p>
+      <ProjectList />
+      <div className="blk">
+        <div className="blk-h">
+          <b>导出</b>
         </div>
-        <div className="list">
+        <div>
           {FORMATS.map((f) => (
             <label key={f.key} className="li check-row">
-              <input
-                type="checkbox"
-                className="sr-only"
-                checked={picked[f.key]}
-                data-role={`export-${f.key}`}
-                onChange={(e) => setPicked({ ...picked, [f.key]: e.currentTarget.checked })}
-              />
+              <input type="checkbox" className="sr-only" checked={picked[f.key]} data-role={`export-${f.key}`} onChange={(e) => setPicked({ ...picked, [f.key]: e.currentTarget.checked })} />
               <span className={`check${picked[f.key] ? ' on' : ''}`}></span>
               <span>{f.label}</span>
               <small>{f.note}</small>
             </label>
           ))}
           <label className="li check-row" title="一个 zip：.RPP + 对齐好的分轨 WAV（24 bit），Reaper 里直接打开">
-            <input
-              type="checkbox"
-              className="sr-only"
-              checked={picked.rpp}
-              data-role="export-rpp"
-              onChange={(e) => setPicked({ ...picked, rpp: e.currentTarget.checked })}
-            />
+            <input type="checkbox" className="sr-only" checked={picked.rpp} data-role="export-rpp" onChange={(e) => setPicked({ ...picked, rpp: e.currentTarget.checked })} />
             <span className={`check${picked.rpp ? ' on' : ''}`}></span>
-            <span data-contrast={picked.rpp ? '' : undefined}>Reaper 工程 .RPP + 分轨</span>
-            <small>zip</small>
+            <span>Reaper 工程 .RPP + 分轨</span>
+            <small>{hasAudio ? 'zip' : 'zip · 还没载入伴奏'}</small>
           </label>
         </div>
-        <div className="seg" style={{ paddingLeft: 28 }} data-role="rpp-stems">
-          {stemButtons.map((b) => (
-            <button
-              key={b.key}
-              className={stems[b.key] && !b.disabled ? 'on' : ''}
-              disabled={!picked.rpp || b.disabled}
-              title={b.title}
-              aria-pressed={stems[b.key] && !b.disabled}
-              data-role={`stem-${b.key}`}
-              onClick={() => setStems({ ...stems, [b.key]: !stems[b.key] })}
-            >
-              {b.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <button className="btn primary block" data-role="export" disabled={count === 0} onClick={doExport}>
-        导出 {count} 项到 下载/{fileBase(s.name)}
-      </button>
-      {error && (
-        <div className="note warn" data-role="export-error">
-          <Icon.warn />
-          <span>{error}</span>
-        </div>
-      )}
-      {result && (
-        <div className="card soft" data-role="export-result">
-          <span className="lbl">已生成：{result.files.join('、')}。没有开始下载（例如画布里不允许下载）时，可以从下面复制：</span>
-          <textarea className="field area export-preview" readOnly value={result.preview} data-role="export-preview" onFocus={(e) => e.currentTarget.select()} />
-        </div>
-      )}
-      {confirmClear ? (
-        <div className="ph">
-          <span className="lbl">清空当前作品的全部歌词？（可以撤销）</span>
-          <button className="btn sm danger" onClick={() => { store.clearLyrics(); setConfirmClear(false); }}>
-            清空
-          </button>
-          <button className="btn sm ghost" onClick={() => setConfirmClear(false)}>
-            取消
-          </button>
-        </div>
-      ) : (
-        <button className="btn sm ghost danger desk-only" style={{ alignSelf: 'flex-start' }} onClick={() => setConfirmClear(true)}>
-          清空当前歌词…
+        {picked.rpp && (
+          <div className="chips" data-role="rpp-stems" style={{ alignSelf: 'flex-start' }}>
+            {stemButtons.map((b) => (
+              <button key={b.key} className={stems[b.key] && !b.disabled ? 'on' : ''} disabled={b.disabled} aria-pressed={stems[b.key] && !b.disabled} data-role={`stem-${b.key}`} onClick={() => setStems({ ...stems, [b.key]: !stems[b.key] })}>
+                {b.label}
+              </button>
+            ))}
+          </div>
+        )}
+        <button className="btn primary" data-role="export" disabled={count === 0} onClick={doExport}>
+          导出 {count} 项到 下载/{fileBase(s.name)}
         </button>
-      )}
-    </>
+        {error && (
+          <div className="err" data-role="export-error">
+            {error}
+          </div>
+        )}
+        {result && (
+          <div data-role="export-result" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <span className="note">已生成：{result.files.join('、')}。没有开始下载（例如画布里不允许下载）时，可以从下面复制：</span>
+            <textarea className="preview" readOnly value={result.preview} data-role="export-preview" onFocus={(e) => e.currentTarget.select()} />
+          </div>
+        )}
+      </div>
+      <div className="blk">
+        {confirmClear ? (
+          <div className="row-btns">
+            <span className="note">清空当前作品的全部文字？字的位置（flow）和颜色留着，可以撤销。</span>
+            <button className="btn sm danger" onClick={() => { store.clearLyrics(); setConfirmClear(false); }}>
+              清空
+            </button>
+            <button className="btn sm ghost" onClick={() => setConfirmClear(false)}>
+              取消
+            </button>
+          </div>
+        ) : (
+          <button className="btn sm ghost danger" style={{ alignSelf: 'flex-start' }} onClick={() => setConfirmClear(true)}>
+            清空当前文字…
+          </button>
+        )}
+      </div>
+    </div>
   );
 }

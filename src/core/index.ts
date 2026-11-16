@@ -1,8 +1,12 @@
 /**
- * AnyBeats 核心逻辑：纯 TypeScript，不碰 DOM，新 UI 直接调用。
+ * AnyBeats 核心逻辑：纯 TypeScript，不碰 DOM，界面直接调用。
  */
 export * from './clock';
 export * from './grid';
+export * from './flow';
+export * from './rhymeRules';
+export * from './locks';
+export * from './aiEdit';
 export * from './history';
 export * from './playhead';
 export * from './cellGesture';

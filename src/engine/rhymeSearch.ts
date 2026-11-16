@@ -3,7 +3,7 @@
  * 「主题联想」可选走现有 backend/ 的本机向量服务，服务没起时界面灰掉这一栏，不报错。
  */
 
-import { getDefaultLexicon, type PartOfSpeech, type RhymeQuery, type Syllable } from '../core';
+import { analyze, finalOfChar, finalsMatch, getDefaultLexicon, literalFinal, RHYME_MATCH_MODE, type PartOfSpeech, type RhymeQuery, type Syllable } from '../core';
 
 export type ToneFilter = 'all' | '平' | '仄' | 1 | 2 | 3 | 4;
 export type PosFilter = 'all' | PartOfSpeech;
@@ -136,4 +136,43 @@ export async function themeCandidates(
   if (!res.ok) throw new Error(`韵脚服务返回 ${res.status}`);
   const data = (await res.json()) as { words?: { word: string; tone?: number; part_of_speech?: string }[] };
   return (data.words ?? []).map((w) => ({ word: w.word, tone: w.tone ?? 0, pos: BACKEND_POS[w.part_of_speech ?? ''] ?? 'o' }));
+}
+
+// ---------- 按颜色规则找候选（v3 押韵面板） ----------
+
+
+/**
+ * 押某条颜色规则的候选：词尾 n 个字（n = 押数）的韵母逐个对得上规则的韵母串（默认严格按字面）。
+ * 单押给单字（取同韵词的尾字）和两字词；本地韵表，不联网。
+ */
+export function ruleCandidates(finals: string[], limit = 9, exclude: readonly string[] = []): string[] {
+  const want = finals.map((f) => f.trim()).filter(Boolean);
+  if (want.length !== finals.length || want.length === 0) return [];
+  const lex = getDefaultLexicon();
+  const ex = new Set(exclude);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const lastOk = (final: string) => finalsMatch(literalFinal(final), want[want.length - 1], RHYME_MATCH_MODE);
+  const push = (w: string) => {
+    if (seen.has(w) || ex.has(w)) return;
+    seen.add(w);
+    out.push(w);
+  };
+  if (want.length === 1) {
+    for (const c of lex.candidates({ length: 2 })) {
+      const last = c.tail[c.tail.length - 1];
+      // 多音字：词里读 háng 的「行」单独填进格子会按 xíng 比对，所以单字再按单独读音核一遍
+      const alone = finalOfChar(last.char);
+      if (lastOk(last.final) && alone !== null && finalsMatch(alone, want[0], RHYME_MATCH_MODE)) push(last.char);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+  for (const c of lex.candidates({ length: want.length })) {
+    if (!lastOk(c.tail[c.tail.length - 1].final)) continue;
+    const syl = analyze(c.word);
+    if (syl.every((s, i) => s && finalsMatch(literalFinal(s.final), want[i], RHYME_MATCH_MODE))) push(c.word);
+    if (out.length >= limit) break;
+  }
+  return out;
 }

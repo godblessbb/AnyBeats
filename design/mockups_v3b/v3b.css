@@ -1,0 +1,96 @@
+/* AnyBeats v3b 补充视觉稿：在 v3 样式（../mockups_v3/v3.css，只读引用，不改）上加三样东西：
+ * 1. 拖音 = 字的长度：字框后面一条同色细线，画到字结束的 tick，可越过格线、折行接着画到下一行开头；
+ * 2. 只有拖音的格子点了出提示，不能涂色；
+ * 3. 手机上字太密时的排法：字号跟着字框缩，最小 11px；还放不下（1/32）整张表左右滑，行头贴左边。
+ * v3 里的「拖音横条 / 空音虚线框」两种字格作废：数据里只有字，空音就是字和字之间的空白。
+ */
+
+/* ---------- 字框：宽度 = 字的「框」那一段（--l），字号由脚本按量出来的格宽算好放进 --fs ---------- */
+.sheet .slot .ch { font-size: var(--fs, var(--ch)); }
+.slot.word { justify-content: flex-start; }
+.slot.word.narrow { justify-content: center; }
+.slot.word.narrow .ch { padding-left: 0; }
+/* 半拍三连这类窄框：去掉边线改成浅底，多出 2px 给字 */
+.slot.word.dense { border: 0; background: var(--ab-surface-3); border-radius: 4px; justify-content: center; }
+.slot.word.dense .ch { padding-left: 0; }
+.slot.word.dense.rp { background: hsl(var(--h) var(--chip-s) var(--chip-l)); }
+/* ---------- 拖音细线：颜色跟字走（没涂色 = 字色；还没填字 = 字框线色；韵脚字 = 这种颜色） ---------- */
+.dl { position: absolute; height: 2px; border-radius: 1px; z-index: 2; pointer-events: none;
+      top: calc(var(--slot-top) + var(--slot-h) / 2 - 1px); background: var(--ab-text); }
+.dl.empty { background: var(--slot-line); }
+.dl.rp { background: hsl(var(--h) var(--sw-s) var(--sw-l)); height: 3px; top: calc(var(--slot-top) + var(--slot-h) / 2 - 1.5px); }
+.dl.end::after { content: ''; position: absolute; right: -1px; top: -3px; width: 2px; height: 8px; border-radius: 1px; background: inherit; }
+.dl.rp.end::after { top: -2.5px; }
+
+/* 三连括线：半拍三连两条，各标「3」 */
+.trip.half { right: auto; width: calc(50% - 4px); }
+.trip.half.h2 { left: calc(50% + 2px); }
+
+/* 只有拖音的格子：点了以后虚线框 + 提示，不能涂色 */
+.cell.hold-hit { outline: 2px dashed var(--ab-warn-line); outline-offset: -3px; }
+.hold-tip {
+  position: absolute; z-index: 7; left: 6px; top: calc(100% + 4px); width: 240px;
+  background: var(--ab-surface); border: 1px solid var(--ab-warn-line); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .16); padding: 8px 10px; font-size: 12px; line-height: 1.5; color: var(--ab-text);
+}
+.hold-tip::before { content: ''; position: absolute; left: 22px; top: -6px; width: 10px; height: 10px; background: var(--ab-surface);
+  border-left: 1px solid var(--ab-warn-line); border-top: 1px solid var(--ab-warn-line); transform: rotate(45deg); }
+.hold-tip b { display: block; font-size: 13px; color: var(--ab-text); }
+.hold-tip span { color: var(--ab-text-muted); }
+
+/* 视觉稿标注：不是界面的一部分，只在稿子里出现。编号圆点放在格子右下角，不压字 */
+.cell .pin { z-index: 3; top: auto; bottom: 1px; right: 2px; width: 13px; height: 13px; font-size: 9px; }
+.anno { position: relative; border: 1.5px dashed var(--ab-text-faint); border-radius: 10px; padding: 16px 12px 10px; background: var(--ab-surface-2); }
+.anno-b { position: absolute; left: 10px; top: -10px; font-size: 11px; line-height: 18px; padding: 0 8px; border-radius: 9px;
+  background: var(--ab-surface-3); color: var(--ab-text); border: 1px solid var(--ab-line-3); font-weight: 600; white-space: nowrap; }
+
+/* ---------- 右栏：字的长度说明 / 小样例 ---------- */
+.cases { display: flex; flex-direction: column; gap: 6px; }
+.stretch { display: grid; grid-template-columns: 116px 1fr; gap: 10px; align-items: center; }
+.case { display: grid; grid-template-columns: 22px 1fr; gap: 4px 8px; align-items: center; }
+.case .ct { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.case .ct span { font-size: 12px; color: var(--ab-text-muted); white-space: nowrap; }
+.case .cm { grid-column: 2; }
+.case .no { width: 18px; height: 18px; border-radius: 50%; background: var(--ab-text); color: var(--ab-surface); font-size: 11px; font-weight: 700; display: grid; place-items: center; }
+.case b { font-size: 13px; white-space: nowrap; }
+.mini { position: relative; display: grid; border: 1px solid var(--grid); border-radius: 5px; overflow: hidden; background: var(--ab-surface);
+  --slot-top: 3px; --slot-h: 17px; --ch: 12px; --fs: 12px; }
+.mini .mc { position: relative; height: 24px; border-right: 1px solid var(--grid); }
+.mini .mc:last-child { border-right: 0; }
+.mini .mc.painted { background: hsl(var(--h) var(--tint-s) var(--tint-l)); }
+.mini .mc.hit { outline: 1.5px dashed var(--ab-warn-line); outline-offset: -3px; }
+.mini .slot.word { border-radius: 4px; }
+.mini .slot .ch { padding-left: 2px; }
+.mini .mrow + .mrow { border-top: 1px solid var(--grid); }
+.mini .mrow { display: grid; grid-template-columns: repeat(var(--n), 1fr); }
+.mini .slot.word.handle { box-shadow: 0 0 0 2px var(--ab-accent); }
+.mini .slot.word.handle::after { content: ''; position: absolute; right: -4px; top: 3px; bottom: 3px; width: 5px; border-radius: 3px; background: var(--ab-accent); }
+.kbd { display: inline-block; min-width: 18px; padding: 0 4px; border: 1px solid var(--ab-line-3); border-bottom-width: 2px; border-radius: 4px;
+  font-family: var(--a-mono); font-size: 11px; line-height: 16px; text-align: center; color: var(--ab-text); background: var(--ab-surface); }
+
+.wtab { width: 100%; border-collapse: collapse; font-size: 12px; }
+.wtab th { text-align: left; font-weight: 600; color: var(--ab-text-muted); padding: 4px 4px; border-bottom: 1px solid var(--ab-line-2); white-space: nowrap; }
+.wtab td { padding: 5px 4px; border-bottom: 1px solid var(--ab-line); color: var(--ab-text); white-space: nowrap; }
+.wtab td.m { font-family: var(--a-mono); }
+.wtab td.k { color: var(--ab-accent-text); font-weight: 600; }
+.rules { margin: 0; padding-left: 18px; font-size: 12px; color: var(--ab-text); line-height: 1.6; }
+.rules b { font-weight: 600; }
+
+/* 手机上的标注条：贴在抽屉上面 */
+@media (max-width: 600px) {
+  .cell .pin { width: 11px; height: 11px; font-size: 8px; bottom: 0; right: 1px; }
+  .hold-tip { width: 220px; left: -60px; }
+  .hold-tip::before { left: 92px; }
+  .m-anno { position: fixed; left: 8px; right: 8px; bottom: 64px; z-index: 9; background: var(--ab-surface-2); box-shadow: 0 6px 18px rgba(0, 0, 0, .12); padding: 14px 10px 8px; }
+  .m-anno p { font-size: 11px; line-height: 1.5; color: var(--ab-text); }
+  .m-anno p b { font-weight: 600; }
+  .m-anno .anno-b { font-size: 10px; line-height: 16px; top: -9px; }
+}
+@media (min-width: 601px) { .m-anno { display: none; } }
+
+/* 字太密（1/32）时整张表左右滑：每拍至少 --cell-min，行头、表头角贴在左边 */
+.sheet.scroll .sh-head, .sheet.scroll .row { grid-template-columns: var(--rh) repeat(4, minmax(var(--cell-min), 1fr)) var(--lab); }
+.sheet.scroll .rh, .sheet.scroll .corner { position: sticky; left: 0; z-index: 3; }
+.sheet.scroll .corner { background: var(--head-bg); }
+.sheet.scroll .sec-h b, .sheet.scroll .sec-h span { position: sticky; left: 10px; }
+.work .tools { left: 0; }

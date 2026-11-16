@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { analyze, createBar, createClip } from '../../core';
-import { barFromPattern } from '../demo';
-import { backendFinal, checkRhymeService, localMatches, nextExclude, pageOf, posCounts, themeCandidates } from '../rhymeSearch';
+import { analyze, finalOfChar, findWord, setWordText, TICKS_PER_BAR, wordStartingAt, type Doc } from '../../core';
+import { nightDriveProject } from '../demo';
+import { backendFinal, checkRhymeService, localMatches, nextExclude, pageOf, posCounts, ruleCandidates, themeCandidates } from '../rhymeSearch';
 import { peaksOf } from '../transport';
-import { barSlots, barText, finalLabel, formatPosition, lastCharStep, toneMark } from '../view';
+import { cellName, formatClock, formatPosition, playFrom, sheetView, toneMark } from '../view';
 
 const yan = analyze('眼')[0]!;
 
@@ -48,6 +48,39 @@ describe('同韵候选（本地韵表）', () => {
   });
 });
 
+describe('按颜色规则找候选（ruleCandidates）', () => {
+  it('双押 u · ou：只给两字词，每个字的韵母都严格对得上', () => {
+    const words = ruleCandidates(['u', 'ou']);
+    expect(words.length).toBeGreaterThan(0);
+    expect(words.length).toBeLessThanOrEqual(9);
+    for (const w of words) {
+      const chars = Array.from(w);
+      expect(chars).toHaveLength(2);
+      expect(chars.map((c) => finalOfChar(c))).toEqual(['u', 'ou']);
+    }
+    expect(new Set(words).size).toBe(words.length);
+  });
+
+  it('单押 ang：给单字，严格按字面（不混进 iang）', () => {
+    const words = ruleCandidates(['ang'], 20);
+    expect(words.length).toBeGreaterThan(0);
+    expect(words.every((w) => Array.from(w).length === 1)).toBe(true);
+    expect(words).toContain('方');
+    expect(words.map((w) => finalOfChar(w))).not.toContain('iang');
+    // 注：没有断言「每个单字单独读的韵母都是 ang」——多音字（如取自「银行」的「行」）单独读是 xíng，见报告
+  });
+
+  it('zhi / chi / shi 的韵母字面是 i；排除表；韵母没填全时不给候选', () => {
+    const words = ruleCandidates(['i', 'ang'], 30);
+    expect(words.length).toBeGreaterThan(0);
+    expect(words.every((w) => Array.from(w).map((c) => finalOfChar(c)).join(' ') === 'i ang')).toBe(true);
+    const ex = ruleCandidates(['i', 'ang'], 9, [words[0]]);
+    expect(ex).not.toContain(words[0]);
+    expect(ruleCandidates(['', 'ou'])).toEqual([]);
+    expect(ruleCandidates([])).toEqual([]);
+  });
+});
+
 describe('主题联想（本机韵脚服务，可选）', () => {
   it('服务没起：返回 offline，不抛错', async () => {
     const fetchImpl = vi.fn(async () => {
@@ -70,29 +103,131 @@ describe('主题联想（本机韵脚服务，可选）', () => {
   });
 });
 
-describe('网格显示', () => {
-  it('片段起点画字、尾巴画延音、空字是空拍', () => {
-    const bar = barFromPattern('我-_好..-', [0]);
-    const kinds = barSlots(bar).slice(0, 8).map((s) => s.kind);
-    expect(kinds).toEqual(['char', 'sus', 'rest', 'char', 'empty', 'empty', 'sus', 'empty']);
-    expect(barSlots(bar)[0].accent).toBe(true);
-    expect(barText(bar)).toBe('我好');
-    expect(lastCharStep(bar)).toBe(3);
-    expect(lastCharStep(createBar([createClip({ start: 0, hold: true })]))).toBe(-1);
+describe('表格视图（sheetView，夜车）', () => {
+  const project = nightDriveProject(0);
+  const doc: Doc = project;
+  const view = sheetView(doc);
+  const cell = (global: number, beat: number) => view.rows[global].cells[beat];
+  const wordId = (global: number, tick: number) => wordStartingAt(doc.grid, global * TICKS_PER_BAR + tick)!.word.id;
+
+  it('段落和行：9 小节，Intro / Verse 1 / Hook', () => {
+    expect(view.rows).toHaveLength(9);
+    expect(view.sections.map((s) => [s.label, s.rows.length])).toEqual([
+      ['Intro', 1],
+      ['Verse 1', 4],
+      ['Hook', 4],
+    ]);
+    expect(view.sections[2].rows[0].global).toBe(5);
+    expect(cell(0, 0).content).toBe('empty');
+    expect(cell(0, 3).words.map((w) => w.text)).toEqual(['走', '吧']);
   });
 
-  it('位置 = 小节 · 拍 · 1/16（都从 1 起）', () => {
-    expect(formatPosition(null)).toBe('01 · 1 · 1');
-    expect(formatPosition(5 * 16 + 5)).toBe('06 · 2 · 2');
+  it('字比字框长：字框后面画细线（同一格里一段）', () => {
+    // 第 3 小节「霓---」：一个字拖满一拍
+    const c = cell(2, 0);
+    expect(c.content).toBe('words');
+    expect(c.words.map((w) => [w.text, w.len, w.box])).toEqual([['霓', 48, 12]]);
+    expect(c.segs).toEqual([
+      expect.objectContaining({ wordId: wordId(2, 0), s: 2 * TICKS_PER_BAR + 12, e: 2 * TICKS_PER_BAR + 48, first: true, last: true, tone: 'ink', hue: null }),
+    ]);
+    // 三连：字框就是 16 tick，不画细线
+    expect(cell(3, 0).mode).toBe('t3');
+    expect(cell(3, 0).words.map((w) => w.box)).toEqual([16, 16, 16]);
+    expect(cell(3, 0).segs).toEqual([]);
   });
 
-  it('调号与韵母显示', () => {
+  it('拖过小节线：第 6 小节第 4 拍的「口」接着画到第 7 小节第 1 拍开头（换行后 first = false）', () => {
+    const kou = wordId(5, 156);
+    const here = cell(5, 3).segs.filter((s) => s.wordId === kou);
+    const next = cell(6, 0).segs.filter((s) => s.wordId === kou);
+    const abs = 5 * TICKS_PER_BAR + 156;
+    expect(here).toEqual([expect.objectContaining({ s: abs + 12, e: 6 * TICKS_PER_BAR, first: true, last: false, fromBar: 5, fromBeat: 3 })]);
+    expect(next).toEqual([expect.objectContaining({ s: 6 * TICKS_PER_BAR, e: abs + 60, first: false, last: true, fromBar: 5, fromBeat: 3, fromKey: cell(5, 3).key })]);
+    // 韵脚字拖出来的线带颜色
+    expect(next[0]).toMatchObject({ tone: 'rp', hue: 340 });
+    // 第 7 小节第 1 拍自己也有字（「油」），所以不是只有拖音
+    expect(cell(6, 0).content).toBe('words');
+  });
+
+  it('只有拖音的格子（第 7 小节第 2 拍，「门」拖过来）：没有字、不能涂色，记得是谁拖过来的', () => {
+    const c = cell(6, 1);
+    expect(c.content).toBe('hold-only');
+    expect(c.words).toEqual([]);
+    expect(c.rule).toBeNull();
+    expect(c.holdFrom).toEqual({ bar: 6, beat: 0, text: '门' });
+    expect(c.segs).toEqual([expect.objectContaining({ wordId: wordId(6, 36), first: true, last: true })]);
+    expect(cell(6, 0).holdFrom).toBeNull();
+  });
+
+  it('韵脚字：带颜色色相和要押的韵母；不是韵脚的字没有；行尾标出这一行的颜色', () => {
+    const c = cell(1, 3);
+    expect(c.rule?.id).toBe('rA');
+    expect(c.words.map((w) => [w.text, w.final, w.hue])).toEqual([
+      ['找', null, null],
+      ['个', null, null],
+      ['地', 'i', 215],
+      ['方', 'ang', 215],
+    ]);
+    expect(view.rows[1].tags.map((r) => r.id)).toEqual(['rB', 'rA']);
+    expect(cell(6, 2).words.map((w) => [w.text, w.final, w.hue])).toEqual([
+      ['踩', null, null],
+      ['到', null, null],
+      ['满', 'an', 42],
+    ]);
+    expect(view.mismatchCount).toBe(0);
+    expect(c.words.every((w) => w.mismatch === null && !w.locked && !w.rhymeLocked)).toBe(true);
+  });
+
+  it('写了字但对不上本格颜色：记一处，字上带 got / want', () => {
+    const fang = findWord(doc.grid, wordId(1, 180))!;
+    const v = sheetView({ ...doc, grid: setWordText(doc.grid, fang.word.id, '想') });
+    expect(v.mismatchCount).toBe(1);
+    expect(v.rows[1].cells[3].words[3].mismatch).toEqual({ got: 'iang', want: 'ang' });
+  });
+
+  it('锁定：整行锁 / 单格锁（格角小锁）/ 锁韵脚位置（字角小锁）', () => {
+    const bar1 = doc.grid.sections[1].bars[0].id;
+    const bar2 = doc.grid.sections[1].bars[1].id;
+    const v = sheetView({ ...doc, locks: { bars: [bar1], beats: [], cells: [`${bar2}:0`], rhyme: true } });
+    expect(v.rows[1].barLocked).toBe(true);
+    expect(v.rows[1].cells.every((c) => c.lockedCell && !c.cellLockIcon)).toBe(true);
+    expect(v.rows[2].cells[0]).toMatchObject({ lockedCell: true, cellLockIcon: true });
+    expect(v.rows[2].cells[1].lockedCell).toBe(false);
+    // 第 9 小节第 4 拍：「十字」不是韵脚，「路口」是
+    expect(v.rows[8].cells[3].words.map((w) => [w.text, w.locked, w.rhymeLocked])).toEqual([
+      ['十', false, false],
+      ['字', false, false],
+      ['路', true, true],
+      ['口', true, true],
+    ]);
+  });
+});
+
+describe('显示用小工具', () => {
+  it('位置 = 小节 · 拍 · 第几个 16 分（都从 1 起）', () => {
+    expect(formatPosition(null)).toBe('1 · 1 · 1');
+    expect(formatPosition(0)).toBe('1 · 1 · 1');
+    expect(formatPosition(5 * TICKS_PER_BAR + 48 + 12)).toBe('6 · 2 · 2');
+    expect(formatPosition(5 * TICKS_PER_BAR + 48 + 16)).toBe('6 · 2 · 2'); // 三连的第二个字也落在第 2 个 16 分里
+    expect(formatPosition(191)).toBe('1 · 4 · 4');
+  });
+
+  it('播放起点（1/16）、时钟、格子名', () => {
+    expect(playFrom(null)).toBe(0);
+    expect(playFrom({ focus: 5 * TICKS_PER_BAR + 12 })).toBe(81);
+    expect(playFrom({ focus: 13 })).toBe(1);
+    expect(formatClock(65.25)).toBe('1:05.3');
+    expect(formatClock(65.25, false)).toBe('1:05');
+    expect(cellName(6, 1)).toBe('第 7 小节第 2 拍');
+  });
+
+  it('调号', () => {
     expect(toneMark('yan', 3)).toBe('yǎn');
     expect(toneMark('liu', 2)).toBe('liú');
     expect(toneMark('gui', 4)).toBe('guì');
     expect(toneMark('lv', 4)).toBe('lǜ');
+    expect(toneMark('kou', 3)).toBe('kǒu');
     expect(toneMark('ma', 0)).toBe('ma');
-    expect(finalLabel('-i')).toBe('i');
   });
 
   it('波形峰值归一化', () => {

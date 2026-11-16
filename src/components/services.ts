@@ -11,8 +11,10 @@ export interface Services {
   library: ProjectLibrary;
   store: EditorStore;
   transport: Transport;
-  ai: AiController;
-  recorder: RecordController;
+  /** 静态版不挂载 AI：null（见 src/features.ts） */
+  ai: AiController | null;
+  /** 录音默认不挂载：null（见 src/features.ts） */
+  recorder: RecordController | null;
 }
 
 export const ServicesContext = createContext<Services | null>(null);
@@ -33,9 +35,12 @@ export function useTransport() {
   return useSyncExternalStore(transport.subscribe, transport.getState);
 }
 
+const noSubscribe = () => () => {};
+const noState = () => null;
+
 export function useAi() {
   const { ai } = useServices();
-  return useSyncExternalStore(ai.subscribe, ai.getState);
+  return useSyncExternalStore(ai ? ai.subscribe : noSubscribe, ai ? ai.getState : noState);
 }
 
 export function useLibrary() {
@@ -46,7 +51,15 @@ export function useLibrary() {
   );
 }
 
-export function useRecorder() {
+/** 录音状态；录音没挂载时为 null */
+export function useRecorderMaybe() {
   const { recorder } = useServices();
-  return useSyncExternalStore(recorder.subscribe, recorder.getState);
+  return useSyncExternalStore(recorder ? recorder.subscribe : noSubscribe, recorder ? recorder.getState : noState);
+}
+
+/** 只在录音挂载时用（RecordPanel） */
+export function useRecorder() {
+  const r = useRecorderMaybe();
+  if (!r) throw new Error('录音没有挂载');
+  return r;
 }

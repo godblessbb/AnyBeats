@@ -1,5 +1,6 @@
 /**
- * 自动保存草稿：每次改动后在 debounceMs 内写入存储，不要求工程先起名。
+ * 自动保存：每次改动后在 debounceMs 内写入存储，不要求工程先起名。
+ * 撤销历史和作品一起存（historyKey），刷新页面后还能接着撤销 / 重做。
  * 存储和定时器都可注入（浏览器里传 localStorage 和 window.setTimeout），测试里用内存假实现。
  * 页面关闭前界面应调用 flush()（例如挂在 pagehide 上），把未落盘的改动立即写入。
  */
@@ -21,20 +22,24 @@ export interface AutosaveOptions {
   store: KeyValueStore;
   timers: TimerApi;
   key?: string;
+  /** 撤销历史存在这个键；不给就不存历史 */
+  historyKey?: string;
   /** 第一次改动后最多等这么久就落盘，默认 1000ms */
   debounceMs?: number;
   onError?: (error: unknown) => void;
 }
 
-export const AUTOSAVE_KEY = 'anybeats.autosave.v2';
+export const AUTOSAVE_KEY = 'anybeats.autosave.v3';
 
 export interface Autosave {
-  /** 工程每改一次就调用一次 */
-  notify(project: Project): void;
+  /** 工程每改一次就调用一次；history 在真正落盘时才序列化 */
+  notify(project: Project, history?: () => string): void;
   /** 立即写入未落盘的改动 */
   flush(): void;
   /** 读回草稿；没有或损坏时返回 null */
   restore(options?: DeserializeOptions): Project | null;
+  /** 读回撤销历史（原样字符串）；没有返回 null */
+  restoreHistory(): string | null;
   clear(): void;
   readonly pending: boolean;
 }
@@ -44,6 +49,7 @@ export function createAutosave(options: AutosaveOptions): Autosave {
   const key = options.key ?? AUTOSAVE_KEY;
   const debounceMs = options.debounceMs ?? 1000;
   let latest: Project | null = null;
+  let latestHistory: (() => string) | null = null;
   let handle: unknown = null;
 
   const write = () => {
@@ -54,12 +60,23 @@ export function createAutosave(options: AutosaveOptions): Autosave {
       latest = null;
     } catch (e) {
       options.onError?.(e);
+      return;
     }
+    if (options.historyKey && latestHistory) {
+      try {
+        store.setItem(options.historyKey, latestHistory());
+      } catch (e) {
+        // 历史太大写不进去：作品本身已经存好了，历史下次再试
+        options.onError?.(e);
+      }
+    }
+    latestHistory = null;
   };
 
   return {
-    notify(project) {
+    notify(project, history) {
       latest = project;
+      if (history) latestHistory = history;
       // 节流而不是不断推迟：连续打字时也保证 debounceMs 内落盘一次
       if (handle === null) handle = timers.setTimeout(write, debounceMs);
     },
@@ -77,11 +94,16 @@ export function createAutosave(options: AutosaveOptions): Autosave {
         return null;
       }
     },
+    restoreHistory() {
+      return options.historyKey ? store.getItem(options.historyKey) : null;
+    },
     clear() {
       if (handle !== null) timers.clearTimeout(handle);
       handle = null;
       latest = null;
+      latestHistory = null;
       store.removeItem(key);
+      if (options.historyKey) store.removeItem(options.historyKey);
     },
     get pending() {
       return latest !== null;

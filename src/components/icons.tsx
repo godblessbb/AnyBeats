@@ -131,4 +131,53 @@ export const Icon = {
       <path d="M8 7v4.5M8 4.8v.01" />
     </svg>
   ),
+  hist: () => (
+    <svg viewBox="0 0 24 24" {...stroke} strokeWidth={2}>
+      <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+      <path d="M3 3v5h5" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  ),
+  lock: () => (
+    <svg viewBox="0 0 24 24" {...stroke} strokeWidth={2}>
+      <rect x="5" y="11" width="14" height="10" rx="2" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  ),
+  swap: () => (
+    <svg viewBox="0 0 24 24" {...stroke} strokeWidth={2}>
+      <path d="M4 7h13l-3-3" />
+      <path d="M20 17H7l3 3" />
+    </svg>
+  ),
+  folder: () => (
+    <svg viewBox="0 0 24 24" {...stroke} strokeWidth={2}>
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    </svg>
+  ),
+  up: () => (
+    <svg viewBox="0 0 24 24" {...stroke} strokeWidth={2}>
+      <path d="m6 15 6-6 6 6" />
+    </svg>
+  ),
+  paint: () => (
+    <svg viewBox="0 0 24 24" {...stroke} strokeWidth={2}>
+      <rect x="4" y="4" width="16" height="16" rx="3" />
+    </svg>
+  ),
+  typeT: () => (
+    <svg viewBox="0 0 24 24" {...stroke} strokeWidth={2}>
+      <path d="M5 6h14M12 6v13" />
+    </svg>
+  ),
+  flow: () => (
+    <svg viewBox="0 0 24 24" {...stroke} strokeWidth={2}>
+      <path d="M4 12h3l3-6 4 12 3-6h3" />
+    </svg>
+  ),
+  edit: () => (
+    <svg viewBox="0 0 24 24" {...stroke} strokeWidth={2}>
+      <path d="M14 4l6 6-9 9H5v-6z" />
+    </svg>
+  ),
 };

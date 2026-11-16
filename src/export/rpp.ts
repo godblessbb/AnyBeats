@@ -18,7 +18,7 @@
  * 时间都是秒（Reaper 时间线 0 = 伴奏开头）。FILE 用相对路径，相对 .RPP 所在目录，即 zip 里的路径。
  */
 
-import { barCount, iterateClips, STEPS_PER_BAR, timeOfStep, type Project } from '../core';
+import { barCount, iterateWords, STEPS_PER_BAR, timeOfStep, type Project } from '../core';
 import { alignedRegion, type TakeMeta } from '../audio/takes';
 
 export interface RppItem {
@@ -130,16 +130,7 @@ export function sectionMarkers(project: Project): RppMarker[] {
 export function lyricRegions(project: Project): RppRegion[] {
   const bars = barCount(project.grid);
   const text: string[] = Array.from({ length: bars }, () => '');
-  let bar = -1;
-  let key = '';
-  for (const loc of iterateClips(project.grid)) {
-    const k = `${loc.section}/${loc.bar}`;
-    if (k !== key) {
-      key = k;
-      bar = Math.floor(loc.absStart / STEPS_PER_BAR);
-    }
-    if (!loc.clip.hold && loc.clip.text) text[bar] += loc.clip.text;
-  }
+  for (const loc of iterateWords(project.grid)) if (loc.word.text) text[loc.global] += loc.word.text;
   const out: RppRegion[] = [];
   text.forEach((t, b) => {
     if (t) out.push({ name: t, start: timeOfStep(project, b * STEPS_PER_BAR), end: timeOfStep(project, (b + 1) * STEPS_PER_BAR) });

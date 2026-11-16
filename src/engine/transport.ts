@@ -1,10 +1,12 @@
 /**
- * 走带：一个 core/clock 时钟，伴奏、节拍器、导唱、歌词高亮全挂在它上面（DESIGN.md §1.3）。
+ * 走带：一个 core/clock 时钟，伴奏、节拍器、导唱、歌词高亮全挂在它上面。
  *
- * - 时钟 = core/clock 的 Clock，时间源是 AudioContext.currentTime（拿不到声卡时退到 performance.now，只是不出声）。
- * - 节拍器 = core/clock 的 attachMetronome；伴奏 = attachBacking；导唱 = onStep 里遇到字的起点就打一下。
- * - 歌词高亮 = 每帧读 clock.position()，交给 core/playhead 的 playheadAt 算格子；停止时 position 为 null → 高亮清掉。
- * - BPM 检测 = core/bpm 的 estimateBpm。
+ * - 时钟 = core/clock 的 Clock（步长 1/16），时间源是 AudioContext.currentTime（拿不到声卡时退到 performance.now，只是不出声）。
+ * - 节拍器 = core/clock 的 attachMetronome；伴奏 = attachBacking（保留原 BPM 时按 BeatRef.rate 变速播放）。
+ * - 导唱 = 每个字「嗒」一声，按字的长度拉长，空白不出声；本机合成（Web Audio），和伴奏共用这一个时钟：
+ *   onStep 里把这个 16 分里开头的字（含三连、1/32 这类不在 16 分上的落点）按 tick 精确排进去。
+ * - 歌词高亮 = 每帧读 clock.position()，交给 core/playhead 算；停止时 position 为 null → 高亮清掉。
+ * - 伴奏：解码 → core/bpm 检测 BPM 和首拍 → 交给 EditorStore.requestBeat（BPM 不同时弹窗二选一，换伴奏也进撤销历史）。
  */
 
 import {
@@ -13,11 +15,15 @@ import {
   Clock,
   createTimeoutWaker,
   estimateBpm,
-  locateStep,
+  estimateFirstBeat,
+  guideEvents,
   mixToMono,
   stepDuration,
+  tickDuration,
+  TICKS_PER_STEP,
   totalSteps,
   type ClickSink,
+  type GuideEvent,
   type TimeSource,
   type TransportEvent,
 } from '../core';
@@ -38,6 +44,8 @@ export interface TransportState {
   guide: boolean;
   loop: boolean;
   backing: BackingInfo | null;
+  /** 作品记着用了哪个伴奏，但这次打开还没选文件（音频不存进本机） */
+  backingMissing: string | null;
   backingVolume: number;
   clickVolume: number;
   analyzing: boolean;
@@ -73,6 +81,9 @@ export class Transport {
   private detach: (() => void)[] = [];
   private raf: number | null = null;
   private buffer: AudioBuffer | null = null;
+  /** 这次打开载入过的伴奏（按文件名），撤销 / 重做换伴奏时切回去 */
+  private buffers = new Map<string, { buffer: AudioBuffer; info: BackingInfo }>();
+  private guideCache: { grid: unknown; byStep: Map<number, GuideEvent[]> } | null = null;
   private backingNode: AudioBufferSourceNode | null = null;
   private backingGain: GainNode | null = null;
   private scheduled: OscillatorNode[] = [];
@@ -87,6 +98,7 @@ export class Transport {
     guide: false,
     loop: true,
     backing: null,
+    backingMissing: null,
     backingVolume: 0.7,
     clickVolume: 0.45,
     analyzing: false,
@@ -97,6 +109,7 @@ export class Transport {
   constructor(store: EditorStore) {
     this.store = store;
     store.subscribe(() => this.syncFromStore());
+    this.syncBacking();
   }
 
   subscribe = (listener: () => void): (() => void) => {
@@ -174,7 +187,7 @@ export class Transport {
   // ---------- 播放 ----------
 
   get songSteps(): number {
-    return totalSteps(this.store.getState().grid);
+    return totalSteps(this.store.getState().doc.grid);
   }
 
   /** 唯一的播放键 */
@@ -188,7 +201,7 @@ export class Transport {
     const ctx = this.ensureContext();
     const audible = await this.audioRunning(ctx);
     const time: TimeSource = audible && ctx ? { now: () => ctx.currentTime } : { now: () => performance.now() / 1000 };
-    const s = this.store.getState();
+    const s = this.store.getState().doc;
     const total = this.songSteps;
     const start = Math.max(0, Math.min(total - 1, Math.floor(fromStep)));
     const loop = options.loop ?? this.state.loop;
@@ -204,15 +217,12 @@ export class Transport {
 
     if (audible && ctx) {
       this.detach.push(attachMetronome(clock, this.clickSink(ctx, () => this.state.metronome, 1000, 800)));
-      const guide = this.clickSink(ctx, () => this.state.guide, 1480, 1180, 'triangle');
       this.detach.push(
         clock.onStep(({ step, time: t }) => {
           if (!this.state.guide) return;
-          // 智能导唱：字的起点打一下（延音、空拍不打），重音字用高音
-          const g = this.store.getState().grid;
-          const addr = locateStep(g, step);
-          const c = addr ? g.sections[addr.section].bars[addr.bar].clips.find((x) => x.start === addr.step) : null;
-          if (c && !c.hold && c.text) guide.click(t, c.accent);
+          // 导唱：这个 16 分里开头的每个字「嗒」一声，按字的长度拉长；空白不出声
+          const sec = tickDuration(this.store.getState().doc.bpm);
+          for (const e of this.guideAt(step)) this.blip(ctx, t + (e.abs - step * TICKS_PER_STEP) * sec, e.len * sec);
         }),
       );
       this.detach.push(
@@ -270,10 +280,64 @@ export class Transport {
     this.raf = requestAnimationFrame(this.frame);
   };
 
+  /** 第 step 个 16 分里开头的字（按网格缓存） */
+  private guideAt(step: number): GuideEvent[] {
+    const grid = this.store.getState().doc.grid;
+    if (!this.guideCache || this.guideCache.grid !== grid) {
+      const byStep = new Map<number, GuideEvent[]>();
+      for (const e of guideEvents(grid)) {
+        const k = Math.floor(e.abs / TICKS_PER_STEP);
+        byStep.set(k, [...(byStep.get(k) ?? []), e]);
+      }
+      this.guideCache = { grid, byStep };
+    }
+    return this.guideCache.byStep.get(step) ?? [];
+  }
+
+  /** 「嗒」：短促起音，按字的长度延续，结束前收掉 */
+  private blip(ctx: AudioContext, time: number, seconds: number) {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.value = 1180;
+    const v = Math.max(0.0001, this.state.clickVolume * 0.6);
+    const end = time + Math.max(0.06, seconds * 0.92);
+    gain.gain.setValueAtTime(0.0001, time);
+    gain.gain.exponentialRampToValueAtTime(v, time + 0.005);
+    gain.gain.exponentialRampToValueAtTime(v * 0.35, time + 0.05);
+    gain.gain.setValueAtTime(v * 0.35, Math.max(time + 0.05, end - 0.03));
+    gain.gain.exponentialRampToValueAtTime(0.0001, end);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(time);
+    osc.stop(end + 0.01);
+    this.scheduled.push(osc);
+    osc.onended = () => {
+      this.scheduled = this.scheduled.filter((o) => o !== osc);
+    };
+  }
+
+  /** 作品里记着的伴奏变了（换伴奏 / 撤销 / 重做 / 切作品）：切到对应的音频 */
+  private syncBacking() {
+    const beat = this.store.getState().doc.beat;
+    const cur = this.state.backing?.name ?? null;
+    if (!beat) {
+      if (cur !== null || this.state.backingMissing !== null) {
+        this.buffer = null;
+        this.set({ backing: null, backingMissing: null });
+      }
+      return;
+    }
+    if (cur === beat.name) return;
+    const hit = this.buffers.get(beat.name);
+    this.buffer = hit ? hit.buffer : null;
+    this.set({ backing: hit ? hit.info : null, backingMissing: hit ? null : beat.name });
+  }
+
   private syncFromStore() {
+    this.syncBacking();
     const clock = this.clock;
     if (!clock) return;
-    const s = this.store.getState();
+    const s = this.store.getState().doc;
     if (clock.bpm !== s.bpm) clock.setBpm(s.bpm);
     if (clock.offsetMs !== s.offsetMs) clock.setOffsetMs(s.offsetMs);
     const total = this.songSteps;
@@ -338,14 +402,18 @@ export class Transport {
   }
 
   private startBacking(ctx: AudioContext, time: number, songTime: number) {
-    if (!this.buffer || songTime >= this.buffer.duration) return;
+    const rate0 = this.store.getState().doc.beat?.rate ?? 1;
+    if (!this.buffer || songTime * rate0 >= this.buffer.duration) return;
     this.stopBacking(time);
     const node = ctx.createBufferSource();
     node.buffer = this.buffer;
+    // 保留原 BPM：新伴奏按 rate 变速播放，歌曲时间 t 对应伴奏里的 t × rate 秒
+    const rate = this.store.getState().doc.beat?.rate ?? 1;
+    node.playbackRate.value = rate;
     const gain = ctx.createGain();
     gain.gain.value = this.state.backingVolume;
     node.connect(gain).connect(ctx.destination);
-    node.start(Math.max(time, ctx.currentTime), songTime);
+    node.start(Math.max(time, ctx.currentTime), songTime * rate);
     this.backingNode = node;
     this.backingGain = gain;
   }
@@ -390,7 +458,10 @@ export class Transport {
 
   // ---------- 伴奏 ----------
 
-  /** 拖入 / 选择伴奏：解码 → core/bpm 自动检测 BPM → 画波形 */
+  /**
+   * 拖入 / 选择伴奏：解码 → core/bpm 检测 BPM 和首拍 → 交给 EditorStore.requestBeat。
+   * BPM 和工程不一样时由界面弹窗二选一；同一个文件名再选一次就是「重新载入」（刷新后音频要重选）。
+   */
   async loadBacking(file: File): Promise<void> {
     const ctx = this.ensureContext();
     if (!ctx) {
@@ -402,18 +473,26 @@ export class Transport {
     try {
       const data = await file.arrayBuffer();
       const buffer = await ctx.decodeAudioData(data);
-      this.buffer = buffer;
       const channels = Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i));
       const mono = mixToMono(channels);
       const result = estimateBpm(mono, buffer.sampleRate);
-      let message: string;
-      if (Number.isFinite(result.bpm) && result.confidence > 0.05) {
-        this.store.setBpm(result.bpm, true);
-        message = `检测到 ${Math.round(result.bpm)} BPM`;
-      } else {
-        message = '没检测出稳定的拍子，BPM 请手动设置';
+      const ok = Number.isFinite(result.bpm) && result.confidence > 0.05;
+      // 伴奏大多是整数 BPM：离整数不到 0.15 就取整，否则保留一位小数
+      const raw = result.bpm;
+      const bpm = ok ? (Math.abs(raw - Math.round(raw)) < 0.15 ? Math.round(raw) : Math.round(raw * 10) / 10) : null;
+      const firstBeat = bpm ? estimateFirstBeat(mono, buffer.sampleRate, bpm) : 0;
+      const info: BackingInfo = { name: file.name, duration: buffer.duration, peaks: peaksOf(mono) };
+      this.buffers.set(file.name, { buffer, info });
+      const message = ok ? `检测到 ${bpm} BPM` : '没检测出稳定的拍子，BPM 请手动设置';
+      this.set({ message });
+      const beat = this.store.getState().doc.beat;
+      if (beat && beat.name === file.name && this.state.backingMissing === file.name) {
+        // 重新载入同一个伴奏（刷新后音频要重选）：不算换伴奏
+        this.buffer = buffer;
+        this.set({ backing: info, backingMissing: null });
+        return;
       }
-      this.set({ backing: { name: file.name, duration: buffer.duration, peaks: peaksOf(mono) }, message });
+      this.store.requestBeat({ name: file.name, bpm, durationSec: buffer.duration, firstBeatMs: Math.round(firstBeat * 1000) });
     } catch (e) {
       this.set({ message: `伴奏载入失败：${(e as Error).message || '格式不支持'}` });
     } finally {
@@ -423,15 +502,15 @@ export class Transport {
 
   removeBacking(): void {
     this.stop();
-    this.buffer = null;
-    this.set({ backing: null, message: null });
+    this.store.removeBeat();
   }
 
-  /** 歌曲总长（秒）：网格长度和伴奏长度取大 */
+  /** 歌曲总长（秒）：网格长度和伴奏长度（按播放速度换算）取大 */
   songSeconds(): number {
-    const s = this.store.getState();
+    const s = this.store.getState().doc;
     const grid = s.offsetMs / 1000 + this.songSteps * stepDuration(s.bpm);
-    return Math.max(grid, this.state.backing?.duration ?? 0);
+    const rate = s.beat?.rate ?? 1;
+    return Math.max(grid, (this.state.backing?.duration ?? 0) / rate);
   }
 }
 

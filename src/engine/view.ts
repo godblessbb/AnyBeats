@@ -1,116 +1,247 @@
 /**
- * 把 core 的数据算成界面要画的东西（纯函数，不碰 DOM）。
+ * 把 core 的数据算成表格要画的东西（纯函数，不碰 DOM）。
+ *
+ * 一行 = 一小节，一格 = 一拍。字画成「字框 + 后面的同色细线」：字框长度按 core/flow 的 boxTicks，
+ * 细线画到字结束的 tick，越过格线、拖过一行末尾就接着画在下一行第一格开头。
+ * 一句超过一小节时超出的字自然落在下一行开头，不加任何续行标记。
  */
 
 import {
-  colorLineEndRhymes,
-  STEPS_PER_BAR,
-  type Bar,
-  type Grid,
-  type LineEndRhyme,
+  allBars,
+  allWords,
+  barModes,
+  boxTicks,
+  cellKey,
+  isCellLocked,
+  lockedWordTicks,
+  mismatches,
+  rhymeSlots,
+  TICKS_PER_BAR,
+  TICKS_PER_BEAT,
+  TICKS_PER_STEP,
+  type BeatMode,
+  type CellContent,
+  type Doc,
+  type RhymeRule,
+  type SectionKind,
 } from '../core';
 
-export type SlotKind = 'empty' | 'char' | 'sus' | 'rest';
-
-export interface SlotView {
-  /** 小节内第几格 */
-  step: number;
-  kind: SlotKind;
+export interface WordView {
+  id: string;
+  /** 全曲绝对起点 */
+  abs: number;
+  /** 小节内起点 */
+  tick: number;
+  /** 拍内起点（0–47） */
+  off: number;
+  len: number;
+  /** 字框那一段多长 */
+  box: number;
   text: string;
-  accent: boolean;
-  /** 覆盖这一格的片段（含延音尾巴） */
-  clipId: string | null;
+  /** 这一位要押的韵母（是韵脚字时） */
+  final: string | null;
+  /** 韵脚字的颜色色相 */
+  hue: number | null;
+  /** 锁定（所在格锁了，或锁了韵脚位置且它是韵脚字） */
+  locked: boolean;
+  /** 锁了全部韵脚位置、而且它是韵脚字（字角画小锁） */
+  rhymeLocked: boolean;
+  /** 写了字但对不上本格颜色 */
+  mismatch: { got: string; want: string } | null;
 }
 
-/** 一小节的 16 格：片段起点画字（空字 = 空拍 ∅，延音片段 = 横线），片段后面占着的格子画延音横线 */
-export function barSlots(bar: Bar): SlotView[] {
-  const slots: SlotView[] = Array.from({ length: STEPS_PER_BAR }, (_, step) => ({
-    step,
-    kind: 'empty' as SlotKind,
-    text: '',
-    accent: false,
-    clipId: null,
-  }));
-  for (const c of bar.clips) {
-    for (let s = c.start; s < c.start + c.length && s < STEPS_PER_BAR; s++) {
-      const head = s === c.start;
-      slots[s] = {
-        step: s,
-        kind: !head || c.hold ? 'sus' : c.text ? 'char' : 'rest',
-        text: head && !c.hold ? c.text : '',
-        accent: head && c.accent && !c.hold && !!c.text,
-        clipId: c.id,
-      };
+export interface SegView {
+  /** 起点所在那个字 */
+  wordId: string;
+  /** 起点那个字所在的格（字归属它起点所在的格） */
+  fromKey: string;
+  fromBar: number;
+  fromBeat: number;
+  fromOff: number;
+  /** 这一段在全曲里的 [s, e) */
+  s: number;
+  e: number;
+  /** 从字框右边开始（这一段在字所在那一格） */
+  first: boolean;
+  /** 字在这一段结束 */
+  last: boolean;
+  tone: 'rp' | 'ink' | 'empty';
+  hue: number | null;
+}
+
+export interface CellView {
+  key: string;
+  barId: string;
+  global: number;
+  beat: number;
+  content: CellContent;
+  /** 涂的颜色（只有拖音 / 空格子不会有） */
+  rule: RhymeRule | null;
+  mode: BeatMode;
+  words: WordView[];
+  segs: SegView[];
+  /** 只有拖音时：是哪个字拖过来的 */
+  holdFrom: { bar: number; beat: number; text: string } | null;
+  lockedCell: boolean;
+  /** 单独锁了这一格（格角画小锁） */
+  cellLockIcon: boolean;
+}
+
+export interface RowView {
+  global: number;
+  barId: string;
+  section: number;
+  cells: CellView[];
+  /** 行尾：这一行涂了哪些颜色 */
+  tags: RhymeRule[];
+  barLocked: boolean;
+}
+
+export interface SectionView {
+  index: number;
+  id: string;
+  kind: SectionKind;
+  label: string;
+  rows: RowView[];
+}
+
+export interface SheetView {
+  sections: SectionView[];
+  rows: RowView[];
+  mismatchCount: number;
+}
+
+export function sheetView(doc: Doc): SheetView {
+  const bars = allBars(doc.grid);
+  const words = allWords(doc.grid);
+  const rules = new Map(doc.rules.map((r) => [r.id, r]));
+  const slots = rhymeSlots(doc.grid, doc.rules, doc.paint);
+  const slotByAbs = new Map(slots.map((s) => [s.abs, s]));
+  const missByAbs = new Map(mismatches(doc.grid, doc.rules, doc.paint).map((m) => [m.abs, m]));
+  const locked = lockedWordTicks(doc.grid, doc);
+
+  const wordView = new Map<number, WordView>();
+  const modesOf = bars.map((b) => barModes(b.data));
+  for (const w of words) {
+    const beat = Math.floor(w.word.tick / TICKS_PER_BEAT);
+    const slot = slotByAbs.get(w.abs);
+    const rule = slot ? rules.get(slot.ruleId) : undefined;
+    const miss = missByAbs.get(w.abs);
+    wordView.set(w.abs, {
+      id: w.word.id,
+      abs: w.abs,
+      tick: w.word.tick,
+      off: w.word.tick % TICKS_PER_BEAT,
+      len: w.word.len,
+      box: boxTicks(w.word, modesOf[w.global][beat]),
+      text: w.word.text,
+      final: slot ? slot.want : null,
+      hue: rule ? rule.hue : null,
+      locked: locked.has(w.abs),
+      rhymeLocked: !!slot && doc.locks.rhyme,
+      mismatch: miss && miss.got ? { got: miss.got, want: miss.want } : null,
+    });
+  }
+
+  // 细线：每个比字框长的字，从字框右边画到字结束，按格切段
+  const segsByCell = new Map<string, SegView[]>();
+  for (const w of words) {
+    const v = wordView.get(w.abs)!;
+    const ls = w.abs + v.box;
+    const le = w.abs + w.word.len;
+    if (le <= ls) continue;
+    const fromBeat = Math.floor(w.word.tick / TICKS_PER_BEAT);
+    for (let c0 = Math.floor(ls / TICKS_PER_BEAT) * TICKS_PER_BEAT; c0 < le; c0 += TICKS_PER_BEAT) {
+      const g = Math.floor(c0 / TICKS_PER_BAR);
+      const bar = bars[g];
+      if (!bar) break;
+      const key = cellKey(bar.data.id, Math.floor((c0 % TICKS_PER_BAR) / TICKS_PER_BEAT));
+      const s = Math.max(ls, c0);
+      const e = Math.min(le, c0 + TICKS_PER_BEAT);
+      const list = segsByCell.get(key) ?? [];
+      list.push({
+        wordId: w.word.id,
+        fromKey: cellKey(w.barId, fromBeat),
+        fromBar: w.global,
+        fromBeat,
+        fromOff: v.off,
+        s,
+        e,
+        first: s === ls,
+        last: e === le,
+        tone: v.hue !== null ? 'rp' : v.text ? 'ink' : 'empty',
+        hue: v.hue,
+      });
+      segsByCell.set(key, list);
     }
   }
-  return slots;
-}
 
-/** 一小节的文字（跳过延音和空拍） */
-export function barText(bar: Bar): string {
-  return bar.clips
-    .filter((c) => !c.hold && c.text)
-    .map((c) => c.text)
-    .join('');
-}
-
-/** 句尾最后一个字所在的格；没有字时 -1 */
-export function lastCharStep(bar: Bar): number {
-  for (let i = bar.clips.length - 1; i >= 0; i--) {
-    const c = bar.clips[i];
-    if (!c.hold && c.text) return c.start;
-  }
-  return -1;
-}
-
-export function allBars(grid: Grid): { section: number; bar: number; global: number; data: Bar }[] {
-  const out: { section: number; bar: number; global: number; data: Bar }[] = [];
-  grid.sections.forEach((s, si) => s.bars.forEach((b, bi) => out.push({ section: si, bar: bi, global: out.length, data: b })));
-  return out;
-}
-
-export interface SectionRhymeStat {
-  /** 显示用的韵母（这一组里第一次出现的那个） */
-  final: string;
-  color: number;
-  count: number;
-}
-
-export interface RhymeView {
-  /** 按全曲小节顺序 */
-  lines: LineEndRhyme[];
-  sections: SectionRhymeStat[][];
-}
-
-/** 句尾押韵：core/rhyme 按十三辙分组配色；这里再按段落统计「ang ×4」 */
-export function rhymeView(grid: Grid): RhymeView {
-  const bars = allBars(grid);
-  const lines = colorLineEndRhymes(bars.map((b) => barText(b.data)));
-  const sections: SectionRhymeStat[][] = grid.sections.map(() => []);
-  bars.forEach((b, i) => {
-    const r = lines[i];
-    if (!r.syllable || r.color === null) return;
-    const stats = sections[b.section];
-    const hit = stats.find((s) => s.color === r.color);
-    if (hit) hit.count += 1;
-    else stats.push({ final: r.syllable.final, color: r.color, count: 1 });
+  const rows: RowView[] = bars.map((b) => {
+    const cells: CellView[] = [0, 1, 2, 3].map((beat) => {
+      const key = cellKey(b.data.id, beat);
+      const ws = b.data.words.filter((w) => Math.floor(w.tick / TICKS_PER_BEAT) === beat).map((w) => wordView.get(b.global * TICKS_PER_BAR + w.tick)!);
+      const segs = segsByCell.get(key) ?? [];
+      // 没有新字、但有前面拖过来的细线经过 → 只有拖音
+      const content: CellContent = ws.length ? 'words' : segs.length ? 'hold-only' : 'empty';
+      const rule = content === 'words' ? (rules.get(doc.paint[key]) ?? null) : null;
+      const from = content === 'hold-only' ? segs[0] : null;
+      const fromWord = from ? words.find((w) => w.word.id === from.wordId) : null;
+      return {
+        key,
+        barId: b.data.id,
+        global: b.global,
+        beat,
+        content,
+        rule,
+        mode: modesOf[b.global][beat],
+        words: ws,
+        segs,
+        holdFrom: from && fromWord ? { bar: from.fromBar, beat: from.fromBeat, text: fromWord.word.text } : null,
+        lockedCell: isCellLocked(doc.locks, b.data.id, beat),
+        cellLockIcon: doc.locks.cells.includes(key),
+      };
+    });
+    const tags: RhymeRule[] = [];
+    for (const c of cells) if (c.rule && !tags.includes(c.rule)) tags.push(c.rule);
+    return { global: b.global, barId: b.data.id, section: b.section, cells, tags, barLocked: doc.locks.bars.includes(b.data.id) };
   });
-  return { lines, sections };
+
+  const sections: SectionView[] = doc.grid.sections.map((s, i) => ({
+    index: i,
+    id: s.id,
+    kind: s.kind,
+    label: s.label,
+    rows: rows.filter((r) => r.section === i),
+  }));
+  return { sections, rows, mismatchCount: missByAbs.size };
 }
 
-/** AI 预览行的句尾韵：接在全曲后面一起算，颜色和已有的行一致 */
-export function previewRhymes(grid: Grid, lines: string[]): LineEndRhyme[] {
-  if (lines.length === 0) return [];
-  const all = colorLineEndRhymes([...allBars(grid).map((b) => barText(b.data)), ...lines]);
-  return all.slice(-lines.length);
+// ---------- 显示用小工具 ----------
+
+/** 位置：小节 · 拍 · 第几个 16 分（都从 1 起） */
+export function formatPosition(absTick: number | null): string {
+  if (absTick === null || absTick < 0) return '1 · 1 · 1';
+  const bar = Math.floor(absTick / TICKS_PER_BAR) + 1;
+  const inBar = absTick % TICKS_PER_BAR;
+  return `${bar} · ${Math.floor(inBar / TICKS_PER_BEAT) + 1} · ${Math.floor((inBar % TICKS_PER_BEAT) / TICKS_PER_STEP) + 1}`;
 }
 
-/** 韵母色板只有 5 个（蓝 / 绿 / 粉 / 青 / 金），超过就轮着用 */
-/** 显示用韵母：core 把 zhi/chi/shi 的韵母记成 "-i"，界面上写 i */
-export const finalLabel = (final: string) => (final === '-i' ? 'i' : final);
+export function formatClock(seconds: number, tenths = true): string {
+  const s = Math.max(0, seconds);
+  const m = Math.floor(s / 60);
+  const rest = s - m * 60;
+  return tenths ? `${m}:${rest.toFixed(1).padStart(4, '0')}` : `${m}:${String(Math.floor(rest)).padStart(2, '0')}`;
+}
 
-export const RHYME_COLORS = 5;
-export const rhymeClass = (color: number | null) => (color === null ? '' : `rc-${color % RHYME_COLORS}`);
+/** 播放从哪一格（1/16）开始：选中了字就从那个字所在的 16 分，否则从头 */
+export function playFrom(selection: { focus: number } | null): number {
+  return selection ? Math.floor(selection.focus / TICKS_PER_STEP) : 0;
+}
+
+/** 一格的中文名：「第 7 小节第 2 拍」 */
+export function cellName(global: number, beat: number): string {
+  return `第 ${global + 1} 小节第 ${beat + 1} 拍`;
+}
 
 const TONE_MARKS: Record<string, string> = {
   a: 'āáǎà',
@@ -137,23 +268,4 @@ export function toneMark(pinyin: string, tone: number): string {
   }
   if (idx < 0) return py;
   return py.slice(0, idx) + TONE_MARKS[py[idx]][tone - 1] + py.slice(idx + 1);
-}
-
-export function formatPosition(absStep: number | null): string {
-  if (absStep === null || absStep < 0) return '01 · 1 · 1';
-  const bar = Math.floor(absStep / STEPS_PER_BAR) + 1;
-  const inBar = absStep % STEPS_PER_BAR;
-  return `${String(bar).padStart(2, '0')} · ${Math.floor(inBar / 4) + 1} · ${(inBar % 4) + 1}`;
-}
-
-export function formatClock(seconds: number, tenths = true): string {
-  const s = Math.max(0, seconds);
-  const m = Math.floor(s / 60);
-  const rest = s - m * 60;
-  return tenths ? `${m}:${rest.toFixed(1).padStart(4, '0')}` : `${m}:${String(Math.floor(rest)).padStart(2, '0')}`;
-}
-
-/** 播放从哪一格开始：选中了格子就从选中格（DAW 式「从光标播放」），否则从头 */
-export function playFrom(selection: { focus: number } | null): number {
-  return selection ? selection.focus : 0;
 }

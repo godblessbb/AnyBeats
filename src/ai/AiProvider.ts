@@ -1,34 +1,49 @@
 /**
- * AI 写词的唯一入口。界面只认这个接口，不知道背后是哪个模型、在哪台机器上跑。
+ * AI 的唯一入口。界面只认这个接口，不知道背后是哪个模型、在哪台机器上跑。
  *
- * 模型和 Key 都交给 Alphie Worker（DESIGN.md §9 第 5 条），页面里不放 Key、不直连任何模型 API。
- * 返回的歌词一律是 core/importAi 能读的 AiLyricData（每小节 64 单位），由界面用 importAiLyrics 导入网格。
+ * 模型和 Key 都交给 Alphie Worker，页面里不放 Key、不直连任何模型 API。
+ * 返回的歌词一律是 AiLyricData（每小节 64 单位 = 每单位 3 tick），由 engine/aiController 换成 tick 后
+ * 交给 core/aiEdit 逐字比对，选区外或锁定位置有任何改动就整份作废。
+ *
+ * 静态版（现在上线的这一版）不挂载 AI 入口；这里的代码留着，接上 AI 后用。
  */
 
 import type { AiLyricData } from '../core';
 
-/** 续写 / 改押韵 / 按拍子调字数 */
-export type AiTask = 'continue' | 'rhyme' | 'fit';
+/** 一次填韵 / 选区润色 */
+export type AiTask = 'fill' | 'polish';
 
 export const AI_TASK_NAMES: Record<AiTask, string> = {
-  continue: '续写',
-  rhyme: '改押韵',
-  fit: '按拍子调字数',
+  fill: '一次填韵',
+  polish: '选区润色',
 };
+
+export interface AiFillTarget {
+  /** 全曲第几个小节（0 起） */
+  bar: number;
+  /** 小节内起点，64 单位制 */
+  startBeat: number;
+  /** 这一位要押的韵母 */
+  final: string;
+}
+
+export interface AiPolishLine {
+  bar: number;
+  /** 这一小节的字：64 单位制的起点 / 时长、原文、能不能改 */
+  words: { startBeat: number; duration: number; text: string; editable: boolean }[];
+}
 
 export interface AiRequest {
   task: AiTask;
   bpm: number;
-  /** 已写的歌词，每小节一行（空小节不传） */
+  /** 全文，每小节一行（空小节传空字符串，保证行号就是小节号） */
   lines: string[];
-  /** continue：续写几小节 */
-  bars?: number;
-  /** rhyme / fit：要改的那一小节 */
-  target?: string;
-  /** rhyme：要押的韵（韵母或十三辙名，如 "ai"） */
-  rhyme?: string;
-  /** fit：改成几个字 */
-  chars?: number;
+  /** fill：要填的韵脚位置 */
+  targets?: AiFillTarget[];
+  /** polish：选区里的小节 */
+  selection?: AiPolishLine[];
+  /** polish：保持骨架（字数、落点不变，只换字） */
+  keepSkeleton?: boolean;
   /** 用户补充的一句要求 */
   instruction?: string;
 }

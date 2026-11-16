@@ -339,3 +339,72 @@ export function estimateBpm(
 
 const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 const round2 = (v: number) => Math.round(v * 100) / 100;
+
+// ---------- 换伴奏 ----------
+
+/**
+ * 首拍位置（秒）：以 bpm 为拍长，取起音能量最大的相位。
+ * 新伴奏的首拍据此自动对齐第 1 小节（工程的第一拍偏移）。
+ */
+export function estimateFirstBeat(samples: ArrayLike<number>, sampleRate: number, bpm: number): number {
+  const env = onsetEnvelope(samples, sampleRate);
+  const v = env.values;
+  if (!(bpm > 0) || v.length === 0) return 0;
+  const period = (60 * env.rate) / bpm;
+  let best = 0;
+  let bestScore = -1;
+  for (let phase = 0; phase < period; phase += 1) {
+    let sum = 0;
+    let n = 0;
+    for (let t = phase; t < v.length; t += period, n++) sum += v[Math.round(t)] ?? 0;
+    const score = n ? sum / n : 0;
+    if (score > bestScore) {
+      bestScore = score;
+      best = phase;
+    }
+  }
+  return best / env.rate;
+}
+
+export type BeatSwapChoice = 'keep' | 'adopt';
+
+/** 换伴奏弹窗默认推荐「改用新 BPM」（11-16 决定） */
+export const RECOMMENDED_BEAT_SWAP: BeatSwapChoice = 'adopt';
+
+export interface BeatSwapOption {
+  choice: BeatSwapChoice;
+  /** 换完以后工程的 BPM */
+  bpm: number;
+  /** 新伴奏的播放速度（保留原 BPM 时变速，改用新 BPM 时 1） */
+  rate: number;
+  /** 整首（按歌词长度）多少秒 */
+  songSeconds: number;
+}
+
+export interface BeatSwapPlan {
+  oldBpm: number;
+  newBpm: number;
+  keep: BeatSwapOption;
+  adopt: BeatSwapOption;
+  recommended: BeatSwapChoice;
+}
+
+/**
+ * 新伴奏 BPM 和工程不一样时的两个选项。歌词记的是 tick，跟着拍子走：
+ * 不管选哪个，每个字的 tick 都不变，变的只是秒数（播放快慢）。
+ */
+export function planBeatSwap(oldBpm: number, newBpm: number, songTicks: number, offsetMs = 0): BeatSwapPlan {
+  const seconds = (bpm: number) => offsetMs / 1000 + (songTicks * 60) / bpm / 48;
+  return {
+    oldBpm,
+    newBpm,
+    keep: { choice: 'keep', bpm: oldBpm, rate: oldBpm / newBpm, songSeconds: seconds(oldBpm) },
+    adopt: { choice: 'adopt', bpm: newBpm, rate: 1, songSeconds: seconds(newBpm) },
+    recommended: RECOMMENDED_BEAT_SWAP,
+  };
+}
+
+/** 两个 BPM 算不算一样（差不到 0.5） */
+export function sameBpm(a: number, b: number): boolean {
+  return Math.abs(a - b) < 0.5;
+}

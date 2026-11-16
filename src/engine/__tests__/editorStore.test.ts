@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { findClip, iterateClips, serializeProject, updateClip } from '../../core';
+import { allWords, barAt, cellKey, DEFAULT_POLISH, deserializeProject, serializeProject, TICKS_PER_BAR, wordStartingAt, type Word } from '../../core';
 import { FakeTimers, MemoryStore } from '../../core/__tests__/fakeTime';
-import { ProjectLibrary, LEGACY_KEY } from '../../storage/library';
+import { V2_NIGHT_DRIVE } from '../../core/__tests__/fixtures/v2project';
+import { backupKey, CURRENT_KEY, historyKey, INDEX_KEY, LEGACY_KEY, ProjectLibrary, projectKey } from '../../storage/library';
 import { MemoryStorage, WebStorage, type StorageAdapter } from '../../storage/StorageAdapter';
-import { EditorStore } from '../editorStore';
-import { barText } from '../view';
 import { emptyProject } from '../demo';
+import { EditorStore } from '../editorStore';
 
 /** 模拟「本机存储可用」：WebStorage 包一个内存 Storage */
 function persistentStorage(backing = new MemoryStore()): StorageAdapter {
@@ -19,47 +19,117 @@ function setup(storage: StorageAdapter = persistentStorage()) {
   return { storage, timers, library, store };
 }
 
-const texts = (store: EditorStore) => store.getState().grid.sections.flatMap((s) => s.bars.map(barText));
+/** 全曲第 bar 小节（0 起）里第 tick 个 tick 的绝对位置 */
+const at = (bar: number, tick: number) => bar * TICKS_PER_BAR + tick;
+const wordAt = (store: EditorStore, abs: number): Word | undefined => wordStartingAt(store.grid, abs)?.word;
+const textAt = (store: EditorStore, abs: number) => wordAt(store, abs)?.text;
+const keyOf = (store: EditorStore, global: number, beat: number) => cellKey(barAt(store.grid, global)!.id, beat);
+const barText = (store: EditorStore, global: number) => barAt(store.grid, global)!.words.map((w) => w.text).join('');
+const layout = (store: EditorStore, global: number) => barAt(store.grid, global)!.words.map((w) => [w.tick, w.len, w.text]);
+const kinds = (store: EditorStore) => store.getState().history.done.map((s) => s.kind);
 
-describe('EditorStore：首次打开与自动保存', () => {
+/** 空工程里铺好：第 1 小节第 1 拍两个空字（0、12），第 2 小节第 1 拍「我」+ 一个空字，第 3 小节一个空字（不涂色）；
+ *  新建一种颜色（单押 ang），涂第 1、2 小节的第 1 拍 */
+function fillableProject(store: EditorStore) {
+  store.newProject();
+  for (const abs of [at(0, 0), at(0, 12), at(1, 0), at(1, 12), at(2, 0)]) store.flowClick(abs);
+  store.commitText(at(1, 0), '我');
+  store.addRule();
+  const rule = store.getState().activeRule!;
+  store.setRuleFinal(rule, 0, 'ang');
+  store.selectBox({ bar: 0, beat: 0 }, { bar: 1, beat: 0 });
+  store.paintSelection();
+  return rule;
+}
+
+describe('EditorStore：首次打开、自动保存、刷新后撤销历史还在', () => {
   it('第一次打开放视觉稿里的「夜车」，并进了作品库', () => {
-    const { store, library } = setup();
-    expect(store.getState().name).toBe('夜车');
-    expect(texts(store)[0]).toBe('凌晨三点我还在路上');
+    const { store, library, storage } = setup();
+    const s = store.getState();
+    expect(s.name).toBe('夜车');
+    expect(s.doc.bpm).toBe(92);
+    expect(store.grid.sections.map((x) => x.label)).toEqual(['Intro', 'Verse 1', 'Hook']);
+    expect(barText(store, 1)).toBe('凌晨三点街灯在还在路上找个地方');
     expect(library.list()).toHaveLength(1);
+    expect(library.list()[0]).toMatchObject({ id: s.projectId, name: '夜车', bars: 9 });
+    expect(storage.getItem(CURRENT_KEY)).toBe(s.projectId);
+    expect(s.history).toMatchObject({ canUndo: false, canRedo: false, done: [], redo: [] });
+    expect(s.save.kind).toBe('saved');
   });
 
-  it('改动 1 秒内经 core/autosave 落盘，刷新（新实例 + 同一个存储）后还在', () => {
+  it('改动在 1 秒内经 core/autosave 落盘；刷新（新实例 + 同一个存储）后作品和撤销历史都还在，撤销真的能退回去', () => {
     const backing = new MemoryStore();
     const a = setup(persistentStorage(backing));
-    a.store.writeText(9 * 16 + 9, '城市');
+    const id = a.store.getState().projectId;
+    a.store.commitText(at(1, 0), '早');
+    expect(textAt(a.store, at(1, 0))).toBe('早');
     expect(a.store.getState().save.kind).toBe('pending');
     a.timers.advance(999);
     expect(a.store.getState().save.kind).toBe('pending');
+    expect(backing.getItem(historyKey(id))).toBeNull();
     a.timers.advance(1);
     expect(a.store.getState().save.kind).toBe('saved');
+    expect(deserializeProject(backing.getItem(projectKey(id))!).grid.sections[1].bars[0].words[0].text).toBe('早');
+    expect(backing.getItem(historyKey(id))).not.toBeNull();
+    const label = a.store.getState().history.undoLabel;
+    expect(label).toBeTruthy();
 
     const b = setup(persistentStorage(backing));
-    expect(texts(b.store)[9]).toBe('没人给我捷径城市');
+    expect(b.store.getState().projectId).toBe(id);
+    expect(b.library.list()).toHaveLength(1); // 没有再建一首「夜车」
+    expect(textAt(b.store, at(1, 0))).toBe('早');
+    const h = b.store.getState().history;
+    expect(h.canUndo).toBe(true);
+    expect(h.undoLabel).toBe(label);
+    expect(h.done.map((s) => s.kind)).toEqual(['fill']);
+    b.store.undo();
+    expect(textAt(b.store, at(1, 0))).toBe('凌');
+    expect(b.store.getState().history.canRedo).toBe(true);
+    b.store.redo();
+    expect(textAt(b.store, at(1, 0))).toBe('早');
   });
 
-  it('flush（页面关闭）不等 1 秒立即落盘', () => {
+  it('撤销之后刷新：可重做的步骤也跟着存下来', () => {
+    const backing = new MemoryStore();
+    const a = setup(persistentStorage(backing));
+    a.store.commitText(at(1, 0), '早');
+    a.store.undo();
+    a.store.flush();
+    const b = setup(persistentStorage(backing));
+    expect(textAt(b.store, at(1, 0))).toBe('凌');
+    expect(b.store.getState().history).toMatchObject({ canUndo: false, canRedo: true });
+    b.store.redo();
+    expect(textAt(b.store, at(1, 0))).toBe('早');
+  });
+
+  it('flush（⌘S / 页面关闭）不等 1 秒立即落盘', () => {
     const backing = new MemoryStore();
     const a = setup(persistentStorage(backing));
     a.store.rename('新名字');
+    a.store.commitText(at(1, 0), '早');
     a.store.flush();
-    expect(setup(persistentStorage(backing)).store.getState().name).toBe('新名字');
+    expect(a.store.getState().save.kind).toBe('saved');
+    expect(a.timers.pendingCount).toBe(0);
+    const b = setup(persistentStorage(backing));
+    expect(b.store.getState().name).toBe('新名字');
+    expect(textAt(b.store, at(1, 0))).toBe('早');
+    expect(b.store.getState().history.canUndo).toBe(true);
   });
 
-  it('拿不到存储时用内存，状态是「本次不保存」，照样能编辑', () => {
-    const { store } = setup(new MemoryStorage('画布里拿不到本机存储'));
+  it('拿不到存储时用内存：状态是「本次不保存」，照样能编辑、撤销', () => {
+    const { store, timers } = setup(new MemoryStorage('画布里拿不到本机存储'));
+    expect(store.persistent).toBe(false);
     expect(store.getState().save).toEqual({ kind: 'memory', reason: '画布里拿不到本机存储' });
-    store.writeText(0, '我');
+    store.commitText(at(1, 0), '早');
+    expect(textAt(store, at(1, 0))).toBe('早');
     expect(store.getState().save.kind).toBe('memory');
-    expect(texts(store)[0].startsWith('我')).toBe(true);
+    timers.advance(1000);
+    expect(store.getState().save.kind).toBe('memory');
+    store.undo();
+    expect(textAt(store, at(1, 0))).toBe('凌');
   });
 
-  it('首次启动把旧版 v1 作品（anybeats_projects）导入作品库', () => {
+  it('首次启动把旧版 v1 作品（anybeats_projects）导入作品库，只导入一次', () => {
     const backing = new MemoryStore();
     backing.setItem(
       LEGACY_KEY,
@@ -69,132 +139,650 @@ describe('EditorStore：首次打开与自动保存', () => {
     const old = library.list().find((m) => m.name === '旧歌');
     expect(old).toBeTruthy();
     const p = library.load(old!.id)!;
-    expect(barText(p.grid.sections[0].bars[0])).toBe('我们走');
-    // 只导入一次
+    expect(p.grid.sections[0].bars[0].words.map((w) => [w.tick, w.len, w.text])).toEqual([
+      [0, 24, '我'],
+      [24, 72, '们'], // 「-」是「们」的长度
+      [144, 48, '走'],
+    ]);
     expect(new ProjectLibrary(persistentStorage(backing)).migrateLegacy()).toBe(0);
   });
 });
 
-describe('EditorStore：编辑都走 core', () => {
-  it('单击 → 单击 → 双击（core/cellGesture）切换重音并关掉编辑框', () => {
-    const { store } = setup();
-    const abs = 9 * 16 + 1; // 第 10 小节「人」
-    const target = { id: String(abs), hasText: true };
-    store.gesture({ type: 'click', target });
-    expect(store.getState().gesture.editing).toBe(String(abs));
-    store.gesture({ type: 'click', target });
-    store.gesture({ type: 'dblclick', target });
-    const clip = [...iterateClips(store.getState().grid)].find((c) => c.absStart === abs)!.clip;
-    expect(clip.accent).toBe(true);
-    expect(store.getState().gesture.editing).toBeNull();
+describe('EditorStore：读旧作品（v2 → v3 迁移经作品库）', () => {
+  function seed(backing: MemoryStore, id: string, raw: string) {
+    backing.setItem(projectKey(id), raw);
+    backing.setItem(INDEX_KEY, JSON.stringify([{ id, name: '夜车', updatedAt: 1731630000000, bars: 10 }]));
+    backing.setItem(CURRENT_KEY, id);
+  }
+
+  it('打开 v2 作品：迁移后的内容对得上；原文拷进备份键；改动落盘后正文变 v3，备份还是原文', () => {
+    const backing = new MemoryStore();
+    seed(backing, 'old1', V2_NIGHT_DRIVE);
+    const a = setup(persistentStorage(backing));
+    expect(a.store.getState().projectId).toBe('old1');
+    expect(a.store.getState().name).toBe('夜车');
+    expect(a.store.doc).toMatchObject({ bpm: 92, offsetMs: 120 });
+    expect(a.store.grid.sections.map((s) => s.label)).toEqual(['Verse 1', 'Hook', 'Verse 2']);
+    expect(layout(a.store, 0).slice(0, 2)).toEqual([
+      [0, 12, '凌'],
+      [12, 12, '晨'],
+    ]);
+    expect(a.library.list()).toHaveLength(1); // 没有另建「夜车」
+    expect(backing.getItem(backupKey('old1'))).toBe(V2_NIGHT_DRIVE);
+    expect(backing.getItem(projectKey('old1'))).toBe(V2_NIGHT_DRIVE); // 只打开不改，正文不动
+
+    a.store.commitText(at(0, 0), '早');
+    a.store.flush();
+    expect(JSON.parse(backing.getItem(projectKey('old1'))!).version).toBe(3);
+    expect(backing.getItem(backupKey('old1'))).toBe(V2_NIGHT_DRIVE);
+
+    // 再刷新：读的是 v3，备份不被覆盖，撤销历史接得上
+    const b = setup(persistentStorage(backing));
+    expect(b.store.getState().projectId).toBe('old1');
+    expect(textAt(b.store, at(0, 0))).toBe('早');
+    expect(backing.getItem(backupKey('old1'))).toBe(V2_NIGHT_DRIVE);
+    b.store.undo();
+    expect(textAt(b.store, at(0, 0))).toBe('凌');
   });
 
-  it('一格一个字；- 延音、_ 空拍；在延音尾巴上写字只截短前一个字', () => {
+  it.each([
+    ['不支持的 v2（每小节 8 格）', V2_NIGHT_DRIVE.replace('"stepsPerBar":16', '"stepsPerBar":8')],
+    ['不是合法 JSON', '{"schema":"anybeats.project","version":2,坏'],
+  ])('读不出来（%s）：换一首打开，原文留在正文键，也拷进了备份键，什么都没丢', (_name, raw) => {
+    expect(raw).not.toBe(V2_NIGHT_DRIVE);
+    const backing = new MemoryStore();
+    seed(backing, 'old1', raw);
+    const { store, library } = setup(persistentStorage(backing));
+    expect(store.getState().projectId).not.toBe('old1');
+    expect(store.grid.sections.map((s) => s.label)).toEqual(['Intro', 'Verse 1', 'Hook']); // 打开的是内置「夜车」
+    expect(store.getState().notice?.text).toMatch(/读不出来/);
+    expect(backing.getItem(projectKey('old1'))).toBe(raw);
+    expect(backing.getItem(backupKey('old1'))).toBe(raw);
+    expect(library.list().some((m) => m.id === 'old1')).toBe(true);
+
+    // 在别的作品上改动、落盘，也不碰它；再去打开它只给提示
+    store.commitText(at(1, 0), '早');
+    store.flush();
+    const cur = store.getState().projectId;
+    store.openProject('old1');
+    expect(store.getState().projectId).toBe(cur);
+    expect(store.getState().notice?.text).toMatch(/读不出来/);
+    expect(backing.getItem(projectKey('old1'))).toBe(raw);
+    expect(backing.getItem(backupKey('old1'))).toBe(raw);
+  });
+});
+
+describe('EditorStore：撤销 / 重做是一条线', () => {
+  it('填字、铺 flow、涂色、锁定、换伴奏都进同一条历史（kind 区分），逐步撤销回到最初', () => {
     const { store } = setup();
-    store.newProject();
-    store.writeText(0, '我们');
-    store.markFocused('hold'); // 没选中：不动
-    store.select(2);
-    store.markFocused('hold');
-    store.markFocused('rest');
-    const bar = store.getState().grid.sections[0].bars[0];
-    expect(bar.clips.map((c) => [c.start, c.length, c.text, c.hold])).toEqual([
-      [0, 1, '我', false],
-      [1, 1, '们', false],
-      [2, 1, '', true],
-      [3, 1, '', false],
-    ]);
-    // 「我」拉长到 4 格，再在第 2 格写字：「我」被截到 2 格，不被删
-    store.clearSlots(1, 3);
-    store.exec('拉长', (g) => updateClip(g, bar.clips[0].id, { length: 4 }));
-    store.writeText(2, '们');
-    expect(store.getState().grid.sections[0].bars[0].clips.map((c) => [c.start, c.length, c.text])).toEqual([
-      [0, 2, '我'],
-      [2, 1, '们'],
-    ]);
+    const original = store.doc;
+    store.commitText(at(1, 0), '早'); // fill
+    store.flowClick(at(1, 72)); // 第 2 小节第 2 拍的空位：flow
+    expect(wordAt(store, at(1, 72))).toMatchObject({ len: 12, text: '' });
+    store.clickCell(1, 0);
+    store.setActiveRule('rD');
+    store.paintSelection(); // paint
+    store.lockCells(true); // lock
+    store.requestBeat({ name: 'beat.mp3', bpm: 92, durationSec: 100, firstBeatMs: 120 }); // BPM 一样：直接换，beat
+    expect(kinds(store)).toEqual(['fill', 'flow', 'paint', 'lock', 'beat']);
+    expect(store.getState().history.done.every((s) => s.label && s.at === 1000)).toBe(true);
+    for (let i = 0; i < 5; i++) store.undo();
+    expect(store.doc).toBe(original);
+    expect(store.getState().history.canUndo).toBe(false);
+    expect(store.getState().history.redo.map((s) => s.kind)).toEqual(['fill', 'flow', 'paint', 'lock', 'beat']);
   });
 
-  it('撤销 / 重做（core/history）', () => {
+  it('撤销之后做新改动：可重做的步骤全部丢掉', () => {
     const { store } = setup();
-    const before = texts(store)[0];
-    store.writeText(0, '早');
-    expect(texts(store)[0].startsWith('早')).toBe(true);
-    expect(store.getState().undoLabel).toBe('输入歌词');
+    store.commitText(at(1, 0), '早');
+    store.commitText(at(1, 12), '上');
     store.undo();
-    expect(texts(store)[0]).toBe(before);
-    store.redo();
-    expect(texts(store)[0].startsWith('早')).toBe(true);
+    expect(store.getState().history).toMatchObject({ canRedo: true });
+    expect(store.getState().history.redo).toHaveLength(1);
+    expect(textAt(store, at(1, 12))).toBe('晨');
+    store.commitText(at(1, 24), '好');
+    expect(store.getState().history).toMatchObject({ canRedo: false, redo: [], redoLabel: null });
+    store.redo(); // 没有可重做的：什么都不变
+    expect(textAt(store, at(1, 12))).toBe('晨');
+    expect(barText(store, 1).startsWith('早晨好点')).toBe(true);
   });
 
-  it('复制粘贴、删除选区', () => {
+  it('没有变化的操作不记一步', () => {
     const { store } = setup();
-    store.newProject();
-    store.writeText(0, '一二三四');
-    store.select(0);
-    store.select(3, true);
-    expect(store.copySelection()).toBe(4);
-    store.select(16);
-    store.paste();
-    expect(texts(store)[1]).toBe('一二三四');
-    store.select(16);
-    store.select(17, true);
-    store.deleteSelection();
-    expect(texts(store)[1]).toBe('三四');
+    store.commitText(at(1, 0), '凌');
+    store.setBpm(92);
+    store.flowClick(at(1, 0)); // 已经有字：只是选中
+    expect(store.getState().cursor).toBe(at(1, 0));
+    expect(store.getState().history.done).toEqual([]);
   });
+});
 
-  it('格子拖到格子、小节重排、段落增删改名', () => {
+describe('EditorStore：铺 flow（拖音 = 字的长度，空音 = 空白）', () => {
+  it('点格子按精度放空字；- 键拖长 / 缩短；拖右边缘吸附到精度；删掉留下空白', () => {
     const { store } = setup();
-    store.newProject();
-    store.writeText(0, '我');
-    store.moveSlot(0, 5);
-    expect(store.getState().grid.sections[0].bars[0].clips[0].start).toBe(5);
-    store.writeText(16, '你');
-    store.moveBarTo({ section: 0, bar: 1 }, { section: 0, bar: 0 });
-    expect(texts(store).slice(0, 2)).toEqual(['你', '我']);
-    store.addSection();
-    expect(store.getState().grid.sections[1].label).toBe('主歌 2');
-    store.renameSection(1, 'Hook');
-    expect(store.getState().grid.sections[1].label).toBe('Hook');
-    store.duplicateSection(0);
-    expect(store.getState().grid.sections).toHaveLength(3);
-    store.deleteSection(1);
-    expect(store.getState().grid.sections).toHaveLength(2);
-  });
-
-  it('作品库：新建 / 打开 / 改名 / 删除 / 导入工程文件', () => {
-    const { store, library } = setup();
-    const first = store.getState().projectId;
     store.newProject();
     expect(store.getState().name).toBe('未命名 1');
+    store.flowClick(5); // 1/16：吸附到 0
+    expect(layout(store, 0)).toEqual([[0, 12, '']]);
+    expect(store.getState().cursor).toBe(0);
+    store.extendCursor();
+    expect(layout(store, 0)).toEqual([[0, 24, '']]);
+    store.extendCursor(-1);
+    expect(layout(store, 0)).toEqual([[0, 12, '']]);
+    store.setPrecision('1/32');
+    store.flowClick(30);
+    expect(layout(store, 0)).toEqual([
+      [0, 12, ''],
+      [30, 6, ''],
+    ]);
+    store.setPrecision('t3');
+    store.flowClick(at(0, 50)); // 三连：一拍 3 个，吸附到 48
+    expect(wordAt(store, at(0, 48))?.len).toBe(16);
+    // 拖右边缘：长度最多到下一个字的起点
+    store.setPrecision('1/16');
+    store.stretchWord(0, 100);
+    expect(wordAt(store, 0)?.len).toBe(30);
+    // 删掉选中的字，光标回到前一个字
+    store.focusWord(30);
+    store.deleteCursorWord();
+    expect(layout(store, 0)).toEqual([
+      [0, 30, ''],
+      [48, 16, ''],
+    ]);
+    expect(store.getState().cursor).toBe(0);
+    expect(kinds(store).every((k) => k === 'flow')).toBe(true);
+  });
+
+  it('字可以拖过小节线：下一行开头只有拖音；复制一行的 flow 到下一行（不带字）', () => {
+    const { store } = setup();
+    store.newProject();
+    store.flowClick(at(0, 168));
+    store.stretchWord(at(0, 168), at(1, 24));
+    expect(wordAt(store, at(0, 168))?.len).toBe(48);
+    expect(barAt(store.grid, 1)!.words).toEqual([]);
+    store.clickCell(1, 0);
+    expect(store.getState().holdTip).toMatchObject({ global: 1, beat: 0, fromBar: 0, fromBeat: 3 });
+
+    store.flowClick(0);
+    store.commitText(0, '我');
+    store.copyFlowToNext(0);
+    // 第 2 小节：第 1 小节的落点和长度（不带字），原来拖进来的音被截断
+    expect(layout(store, 1)).toEqual([
+      [0, 12, ''],
+      [168, 48, ''],
+    ]);
+    expect(wordAt(store, at(0, 168))?.len).toBe(24);
+    store.copyFlowToNext(7);
+    expect(store.getState().notice?.text).toMatch(/最后一小节/);
+    store.clearBarFlow(1);
+    expect(layout(store, 1)).toEqual([]);
+  });
+});
+
+describe('EditorStore：填字', () => {
+  it('从一个字起依次往后填，填完选中下一个字；空字符串清掉文字', () => {
+    const { store } = setup();
+    store.startEdit(at(1, 0));
+    expect(store.getState().editing).toBe(at(1, 0));
+    store.commitText(at(1, 0), '早 上好');
+    expect(store.getState().editing).toBeNull();
+    expect(barText(store, 1).startsWith('早上好点')).toBe(true);
+    expect(store.getState().cursor).toBe(at(1, 36));
+    expect(store.getState().history.undoLabel).toMatch(/填字/);
+    store.commitText(at(1, 0), '');
+    expect(textAt(store, at(1, 0))).toBe('');
+    expect(kinds(store)).toEqual(['fill', 'fill']);
+  });
+
+  it('候选词填进一格的韵脚位置（最后 n 个字）', () => {
+    const { store } = setup();
+    store.fillRhyme(keyOf(store, 1, 3), '市场');
+    expect(barText(store, 1).endsWith('找个市场')).toBe(true);
+    store.fillRhyme(keyOf(store, 1, 0), '你好'); // 没涂色
+    expect(store.getState().notice?.text).toMatch(/涂了色/);
+    expect(kinds(store)).toEqual(['fill']);
+  });
+
+  it('严格按字面比对韵母：规则 ang，写「想」(iang) 算对不上，写「方」才对', () => {
+    const { store } = setup();
+    store.newProject();
+    store.flowClick(0);
+    store.addRule();
+    const rule = store.getState().activeRule!;
+    store.setRuleFinal(rule, 0, 'ang');
+    expect(store.doc.rules.find((r) => r.id === rule)?.finals).toEqual(['ang']);
+    store.clickCell(0, 0);
+    store.paintSelection();
+    expect(store.mismatchCount()).toBe(0); // 还没写字不算
+    store.commitText(0, '想');
+    expect(store.mismatchCount()).toBe(1);
+    store.commitText(0, '方');
+    expect(store.mismatchCount()).toBe(0);
+  });
+
+  it('夜车里把韵脚「方」改成「想」：对不上的数量加一', () => {
+    const { store } = setup();
+    expect(store.mismatchCount()).toBe(0);
+    store.commitText(at(1, 180), '想');
+    expect(store.mismatchCount()).toBe(1);
+  });
+});
+
+describe('EditorStore：锁定', () => {
+  function expectBlocked(store: EditorStore, action: () => void) {
+    const doc = store.doc;
+    const depth = store.getState().history.done.length;
+    const notice = store.getState().notice;
+    action();
+    expect(store.doc).toBe(doc);
+    expect(store.getState().history.done).toHaveLength(depth);
+    expect(store.getState().notice).not.toBe(notice);
+    expect(store.getState().notice?.text).toMatch(/锁住了/);
+  }
+
+  it('锁了格子：这一格不能填字、不能铺 flow、不能删字，别的格照样能改；解锁后又能改', () => {
+    const { store } = setup();
+    store.clickCell(1, 0);
+    store.lockCells(true);
+    expect(store.doc.locks.cells).toEqual([keyOf(store, 1, 0)]);
+    expect(kinds(store)).toEqual(['lock']);
+    expectBlocked(store, () => store.commitText(at(1, 0), '早'));
+    store.setPrecision('1/32');
+    expectBlocked(store, () => store.flowClick(at(1, 6)));
+    store.setPrecision('1/16');
+    store.focusWord(at(1, 12));
+    expectBlocked(store, () => store.deleteCursorWord());
+    store.focusWord(at(1, 12));
+    expectBlocked(store, () => store.extendCursor(-1)); // 改长度也不行
+    expectBlocked(store, () => store.clearBarFlow(1));
+    // 旁边没锁的格照样能改
+    store.commitText(at(1, 48), '路');
+    expect(textAt(store, at(1, 48))).toBe('路');
+    store.clickCell(1, 0);
+    store.lockCells(false);
+    store.commitText(at(1, 0), '早');
+    expect(textAt(store, at(1, 0))).toBe('早');
+  });
+
+  it('锁整行 / 整列', () => {
+    const { store } = setup();
+    store.selectRow(2);
+    store.lockRows(true);
+    expect(store.doc.locks.bars).toEqual([barAt(store.grid, 2)!.id]);
+    expectBlocked(store, () => store.commitText(at(2, 48), '雨'));
+    expectBlocked(store, () => store.flowClick(at(2, 12))); // 会截短拖着的「霓」
+    store.selectColumn(0);
+    store.lockColumns(true);
+    expect(store.doc.locks.beats).toEqual([0]);
+    expectBlocked(store, () => store.commitText(at(4, 0), '一'));
+    store.commitText(at(4, 48), '走');
+    expect(textAt(store, at(4, 48))).toBe('走');
+    expect(kinds(store)).toEqual(['lock', 'lock', 'fill']);
+  });
+
+  it('锁全部韵脚位置：韵脚字不能改，同一格里不是韵脚的字照样能改', () => {
+    const { store } = setup();
+    store.lockRhyme(true);
+    expect(store.doc.locks.rhyme).toBe(true);
+    expectBlocked(store, () => store.commitText(at(1, 180), '堂'));
+    expectBlocked(store, () => store.fillRhyme(keyOf(store, 1, 3), '市场'));
+    store.commitText(at(1, 144), '去');
+    expect(textAt(store, at(1, 144))).toBe('去');
+    store.lockRhyme(false);
+    store.commitText(at(1, 180), '堂');
+    expect(textAt(store, at(1, 180))).toBe('堂');
+  });
+
+  it('锁定不挡涂色（涂色不改字）', () => {
+    const { store } = setup();
+    store.clickCell(1, 0);
+    store.lockCells(true);
+    store.setActiveRule('rB');
+    store.paintSelection();
+    expect(store.doc.paint[keyOf(store, 1, 0)]).toBe('rB');
+  });
+});
+
+describe('EditorStore：选格子 / 涂色', () => {
+  it('点只有拖音的格子（第 7 小节第 2 拍，「门」拖过来）：出提示、选不上', () => {
+    const { store } = setup();
+    store.clickCell(1, 0);
+    expect(store.getState().selection).toEqual([keyOf(store, 1, 0)]);
+    store.clickCell(6, 1);
+    expect(store.getState().holdTip).toMatchObject({ key: keyOf(store, 6, 1), global: 6, beat: 1, fromBar: 6, fromBeat: 0, text: '门' });
+    expect(store.getState().selection).toEqual([]);
+    expect(store.canPaintKey(keyOf(store, 6, 1))).toBe(false);
+    store.dismissHoldTip();
+    expect(store.getState().holdTip).toBeNull();
+    store.clickCell(6, 0);
+    expect(store.getState().holdTip).toBeNull();
+    expect(store.getState().selection).toEqual([keyOf(store, 6, 0)]);
+  });
+
+  it('选区里有只有拖音的格子：涂色跳过它（paint 里没有这个键），其余照涂', () => {
+    const { store } = setup();
+    store.selectRow(6);
+    expect(store.getState().selection).toHaveLength(4);
+    store.setActiveRule('rB');
+    store.paintSelection();
+    const paint = store.doc.paint;
+    expect(keyOf(store, 6, 1) in paint).toBe(false);
+    expect([0, 2, 3].map((b) => paint[keyOf(store, 6, b)])).toEqual(['rB', 'rB', 'rB']);
+    expect(store.getState().notice?.text).toMatch(/跳过 1 格/);
+    expect(kinds(store)).toEqual(['paint']);
+    // 只框了这一格：涂不上，出拖音提示
+    store.selectBox({ bar: 6, beat: 1 }, { bar: 6, beat: 1 });
+    store.paintSelection();
+    expect(store.getState().holdTip?.text).toBe('门');
+    expect(kinds(store)).toEqual(['paint']);
+  });
+
+  it('一格一种颜色：用别的颜色再涂就替换；擦掉', () => {
+    const { store } = setup();
+    const k = keyOf(store, 6, 2);
+    expect(store.doc.paint[k]).toBe('rD');
+    store.clickCell(6, 2);
+    store.setActiveRule('rB');
+    store.paintSelection();
+    expect(store.doc.paint[k]).toBe('rB');
+    expect(Object.values(store.doc.paint)).not.toContain('rD');
+    store.setActiveRule('rA');
+    store.paintSelection();
+    expect(store.doc.paint[k]).toBe('rA');
+    store.eraseSelection();
+    expect(k in store.doc.paint).toBe(false);
+    expect(kinds(store)).toEqual(['paint', 'paint', 'paint']);
+    store.paintSelection();
+    store.setActiveRule(null);
+    store.paintSelection();
+    expect(store.getState().notice?.text).toMatch(/先选一种颜色/);
+  });
+
+  it('选法：整行 / 整列 / 框选两个角 / 反选', () => {
+    const { store } = setup();
+    store.setSelMode('row');
+    store.clickCell(2, 1);
+    expect(store.getState().selection).toEqual([0, 1, 2, 3].map((b) => keyOf(store, 2, b)));
+    store.setSelMode('col');
+    store.clickCell(2, 1);
+    expect(store.getState().selection).toHaveLength(9);
+    store.setSelMode('box');
+    store.clickCell(1, 0);
+    store.clickCell(2, 1);
+    expect(store.getState().selection).toEqual([keyOf(store, 1, 0), keyOf(store, 1, 1), keyOf(store, 2, 0), keyOf(store, 2, 1)]);
+    store.toggleInvert();
+    store.clickCell(1, 0);
+    expect(store.getState().selection).toEqual([keyOf(store, 1, 1), keyOf(store, 2, 0), keyOf(store, 2, 1)]);
+    store.clearSelection();
+    expect(store.getState().selection).toEqual([]);
+  });
+});
+
+describe('EditorStore：颜色规则', () => {
+  it('两种颜色定成同一个韵：一步自动合并，格子改成先建的颜色，提示「合并」；撤销一次两种颜色和涂色都回来', () => {
+    const { store } = setup();
+    store.addRule();
+    const id = store.getState().activeRule!;
+    expect(store.doc.rules.map((r) => r.id)).toEqual(['rA', 'rB', 'rC', 'rD', id]);
+    const k = keyOf(store, 1, 0);
+    store.clickCell(1, 0);
+    store.paintSelection();
+    expect(store.doc.paint[k]).toBe(id);
+    store.setRuleCount(id, 2);
+    expect(store.doc.rules.find((r) => r.id === id)?.finals).toEqual(['', '']);
+    store.setRuleFinal(id, 0, 'u');
+    expect(store.doc.rules).toHaveLength(5);
+    const before = store.doc;
+    const depth = store.getState().history.done.length;
+
+    store.setRuleFinal(id, 1, 'ou'); // 和粉色 rC（u · ou）一样
+    expect(store.doc.rules.map((r) => r.id)).toEqual(['rA', 'rB', 'rC', 'rD']);
+    expect(store.doc.paint[k]).toBe('rC');
+    expect(Object.values(store.doc.paint)).not.toContain(id);
+    expect(store.getState().activeRule).toBe('rC');
+    expect(store.getState().notice?.text).toMatch(/合并/);
+    expect(store.getState().history.done).toHaveLength(depth + 1);
+    expect(store.getState().history.undoLabel).toMatch(/合并/);
+
+    store.undo();
+    expect(store.doc).toBe(before);
+    expect(store.doc.rules.find((r) => r.id === id)?.finals).toEqual(['u', '']);
+    expect(store.doc.paint[k]).toBe(id);
+  });
+
+  it('删掉一种颜色：它的格子不再涂色；押数改了韵母框跟着变', () => {
+    const { store } = setup();
+    store.setRuleCount('rB', 2);
+    expect(store.doc.rules.find((r) => r.id === 'rB')?.finals).toEqual(['', 'ai']);
+    store.removeRule('rB');
+    expect(store.doc.rules.map((r) => r.id)).toEqual(['rA', 'rC', 'rD']);
+    expect(Object.values(store.doc.paint)).not.toContain('rB');
+    expect(kinds(store)).toEqual(['paint', 'paint']);
+  });
+
+  it('最多 8 种颜色', () => {
+    const { store } = setup();
+    for (let i = 0; i < 4; i++) store.addRule();
+    expect(store.doc.rules).toHaveLength(8);
+    store.addRule();
+    expect(store.doc.rules).toHaveLength(8);
+    expect(store.getState().notice?.text).toMatch(/8/);
+  });
+});
+
+describe('EditorStore：换伴奏', () => {
+  const info = { name: '新伴奏.mp3', bpm: 100, durationSec: 120, firstBeatMs: 200 };
+
+  it('BPM 不一样且已经写了字：先弹窗（默认推荐改用新 BPM），不改任何东西', () => {
+    const { store } = setup();
+    const doc = store.doc;
+    store.requestBeat(info);
+    const pending = store.getState().beatSwap!;
+    expect(pending).toMatchObject({ name: '新伴奏.mp3', bpm: 100 });
+    expect(pending.plan.recommended).toBe('adopt');
+    expect(pending.plan).toMatchObject({ oldBpm: 92, newBpm: 100, keep: { bpm: 92 }, adopt: { bpm: 100, rate: 1 } });
+    expect(pending.plan.keep.rate).toBeCloseTo(0.92, 9);
+    expect(store.doc).toBe(doc);
+    expect(store.getState().history.done).toEqual([]);
+  });
+
+  it('改用新 BPM：BPM 100、伴奏原速，每个字的 tick 不动；记一步「换伴奏」', () => {
+    const { store } = setup();
+    const grid = store.grid;
+    store.requestBeat(info);
+    store.confirmBeatSwap('adopt');
+    expect(store.getState().beatSwap).toBeNull();
+    expect(store.doc.bpm).toBe(100);
+    expect(store.doc.beat).toEqual({ name: '新伴奏.mp3', bpm: 100, rate: 1, durationSec: 120 });
+    expect(store.doc.offsetMs).toBe(200);
+    expect(store.grid).toBe(grid);
+    expect(kinds(store)).toEqual(['beat']);
+    store.undo();
+    expect(store.doc).toMatchObject({ bpm: 92, beat: null, offsetMs: 120 });
+  });
+
+  it('保留原 BPM：还是 92，新伴奏按 0.92 倍速放，首拍偏移按变速换算', () => {
+    const { store } = setup();
+    const before = allWords(store.grid).map((w) => [w.abs, w.word.len]);
+    store.requestBeat(info);
+    store.confirmBeatSwap('keep');
+    expect(store.doc.bpm).toBe(92);
+    expect(store.doc.beat?.rate).toBeCloseTo(0.92, 9);
+    expect(store.doc.beat?.bpm).toBe(100);
+    expect(store.doc.offsetMs).toBe(Math.round(200 / 0.92));
+    expect(allWords(store.grid).map((w) => [w.abs, w.word.len])).toEqual(before);
+    expect(kinds(store)).toEqual(['beat']);
+  });
+
+  it('取消：什么都不变', () => {
+    const { store } = setup();
+    const doc = store.doc;
+    store.requestBeat(info);
+    store.cancelBeatSwap();
+    expect(store.getState().beatSwap).toBeNull();
+    expect(store.doc).toBe(doc);
+    expect(store.getState().history.done).toEqual([]);
+    store.confirmBeatSwap('adopt'); // 弹窗已经关了：不做
+    expect(store.doc).toBe(doc);
+  });
+
+  it('空工程（还没有字）：不弹窗，直接换成新伴奏的 BPM', () => {
+    const { store } = setup();
+    store.newProject();
+    expect(store.doc.bpm).toBe(92); // 新工程沿用当前 BPM
+    store.requestBeat(info);
+    expect(store.getState().beatSwap).toBeNull();
+    expect(store.doc.bpm).toBe(100);
+    expect(store.doc.beat).toMatchObject({ name: '新伴奏.mp3', rate: 1 });
+    expect(kinds(store)).toEqual(['beat']);
+    store.removeBeat();
+    expect(store.doc.beat).toBeNull();
+    expect(kinds(store)).toEqual(['beat', 'beat']);
+  });
+
+  it('BPM 夹在 40–220；首拍偏移 0–5000ms', () => {
+    const { store } = setup();
+    store.setBpm(500);
+    expect(store.doc.bpm).toBe(220);
+    store.setBpm(Number.NaN);
+    expect(store.doc.bpm).toBe(220);
+    store.setOffsetMs(-10);
+    expect(store.doc.offsetMs).toBe(0);
+    expect(kinds(store)).toEqual(['edit', 'edit']);
+  });
+});
+
+describe('EditorStore：AI 结果上屏前逐字比对', () => {
+  it('一次填韵：只填涂了色、还没写字的格子，作为一步「AI 改写」', () => {
+    const { store } = setup();
+    fillableProject(store);
+    const depth = store.getState().history.done.length;
+    const r = store.applyAiFill([{ abs: 12, text: '方' }]);
+    expect(r).toEqual({ ok: true, violations: [] });
+    expect(layout(store, 0)).toEqual([
+      [0, 12, ''],
+      [12, 12, '方'],
+    ]);
+    expect(store.getState().history.done).toHaveLength(depth + 1);
+    expect(kinds(store).at(-1)).toBe('ai');
+    store.undo();
+    expect(textAt(store, 12)).toBe('');
+  });
+
+  it('一次填韵：答案还写了别的位置 → 整份作废，表格不动', () => {
+    const { store } = setup();
+    fillableProject(store);
+    const doc = store.doc;
+    const depth = store.getState().history.done.length;
+    const r = store.applyAiFill([
+      { abs: 12, text: '方' },
+      { abs: at(1, 12), text: '场' }, // 第 2 小节已经写了字，不该填
+    ]);
+    expect(r.ok).toBe(false);
+    expect(r.violations.map((v) => v.abs)).toContain(at(1, 12));
+    expect(store.doc).toBe(doc);
+    expect(store.getState().history.done).toHaveLength(depth);
+    expect(store.getState().notice?.text).toMatch(/作废/);
+  });
+
+  it('选区润色：保持骨架只换字，选区外 / 改落点的整份作废', () => {
+    const { store } = setup();
+    fillableProject(store);
+    const scope = [keyOf(store, 0, 0)];
+    expect(store.applyAiPolish(scope, DEFAULT_POLISH, { texts: [{ abs: 0, text: '远' }, { abs: 12, text: '方' }] }).ok).toBe(true);
+    expect(barText(store, 0)).toBe('远方');
+    expect(kinds(store).at(-1)).toBe('ai');
+
+    const doc = store.doc;
+    const outside = store.applyAiPolish(scope, DEFAULT_POLISH, { texts: [{ abs: 0, text: '前' }, { abs: at(1, 0), text: '你' }] });
+    expect(outside.ok).toBe(false);
+    expect(outside.violations).toEqual([expect.objectContaining({ abs: at(1, 0), reason: 'outside' })]);
+    const skeleton = store.applyAiPolish(scope, DEFAULT_POLISH, { texts: [{ abs: 6, text: '的' }] });
+    expect(skeleton.ok).toBe(false);
+    expect(skeleton.violations.some((v) => v.reason === 'skeleton')).toBe(true);
+    expect(store.doc).toBe(doc);
+  });
+
+  it('选区润色：锁住的字被改了也整份作废', () => {
+    const { store } = setup();
+    store.clickCell(1, 0);
+    store.lockCells(true);
+    const doc = store.doc;
+    const r = store.applyAiPolish([keyOf(store, 1, 0)], DEFAULT_POLISH, { texts: [{ abs: at(1, 0), text: '早' }] });
+    expect(r.ok).toBe(false);
+    expect(r.violations[0].reason).toBe('locked');
+    expect(store.doc).toBe(doc);
+  });
+});
+
+describe('EditorStore：小节 / 段落 / 作品库', () => {
+  it('加删小节、加段落（同类自动编号）、改类型、复制、删除', () => {
+    const { store } = setup();
+    store.deleteBar(0); // Intro 只有一小节
+    expect(store.getState().notice?.text).toMatch(/至少留一个小节/);
+    store.addBar(0);
+    expect(store.grid.sections[0].bars).toHaveLength(2);
+    store.deleteBar(1);
+    expect(store.grid.sections[0].bars).toHaveLength(1);
+    store.addSection('verse');
+    expect(store.grid.sections.map((s) => s.label)).toEqual(['Intro', 'Verse 1', 'Hook', 'Verse 2']);
+    store.setSectionKind(3, 'outro');
+    expect(store.grid.sections[3].label).toBe('Outro');
+    store.duplicateSection(2);
+    expect(store.grid.sections.map((s) => s.label)).toEqual(['Intro', 'Verse 1', 'Hook 1', 'Hook 2', 'Outro']);
+    expect(barText(store, 9)).toBe(barText(store, 5)); // Hook 2 的第一小节 = Hook 1 的第一小节
+    store.deleteSection(4);
+    expect(store.grid.sections).toHaveLength(4);
+    expect(kinds(store)).toEqual(['flow', 'flow', 'edit', 'edit', 'edit', 'edit']);
+  });
+
+  it('新建 / 打开 / 改名 / 另存 / 删除 / 导入工程文件', () => {
+    const { store, library } = setup();
+    const first = store.getState().projectId;
+    store.commitText(at(1, 0), '早');
+    store.newProject();
+    expect(store.getState().name).toBe('未命名 1');
+    expect(store.getState().history.done).toEqual([]);
+    expect(store.grid.sections.map((s) => s.label)).toEqual(['Verse 1']);
     store.renameProject(first, '夜车 v2');
     expect(library.list().find((m) => m.id === first)?.name).toBe('夜车 v2');
     store.openProject(first);
     expect(store.getState().name).toBe('夜车 v2');
-    const file = serializeProject(emptyProject('导入的歌', 5));
-    expect(store.importProjectFile(file)).toBe(true);
+    expect(textAt(store, at(1, 0))).toBe('早');
+    store.saveAs('夜车 副本');
+    expect(store.getState().projectId).not.toBe(first);
+    expect(store.getState().name).toBe('夜车 副本');
+    expect(textAt(store, at(1, 0))).toBe('早');
+
+    expect(store.importProjectFile(serializeProject(emptyProject('导入的歌', 5)))).toBe(true);
     expect(store.getState().name).toBe('导入的歌');
+    expect(store.importProjectFile(V2_NIGHT_DRIVE)).toBe(true); // 旧版 v2 也认
+    expect(store.grid.sections.map((s) => s.label)).toEqual(['Verse 1', 'Hook', 'Verse 2']);
     expect(store.importProjectFile('{坏的')).toBe(false);
     expect(store.getState().notice?.text).toMatch(/导入失败/);
+
     const id = store.getState().projectId;
     store.deleteProject(id);
     expect(library.list().some((m) => m.id === id)).toBe(false);
+    expect(store.getState().projectId).not.toBe(id);
   });
 
-  it('AI 预览：先填后面的空小节，不够再插；采用后能撤销', () => {
+  it('打开示例「街头节奏」', () => {
     const { store } = setup();
-    store.newProject(); // 16 个空小节
-    store.writeText(0, '第一句');
-    const at = store.continuePoint();
-    expect(at).toEqual({ section: 0, at: 1 });
-    const bar = store.getState().grid.sections[0].bars[0];
-    store.setPreview({ task: 'continue', mode: 'fill', ...at, bars: [bar, bar], lines: ['第一句', '第一句'], before: [], warnings: [] });
-    const n = store.getState().grid.sections[0].bars.length;
-    store.adoptPreview();
-    expect(store.getState().preview).toBeNull();
-    expect(texts(store).slice(0, 3)).toEqual(['第一句', '第一句', '第一句']);
-    expect(store.getState().grid.sections[0].bars.length).toBe(n); // 填进空小节，没有多插
+    store.openExample('street');
+    expect(store.getState().name).toBe('街头节奏');
+    expect(barText(store, 0)).toBe('我走在街上感受节奏');
+  });
+
+  it('订阅：每次改动都通知', () => {
+    const { store } = setup();
+    let n = 0;
+    const off = store.subscribe(() => (n += 1));
+    store.commitText(at(1, 0), '早');
+    expect(n).toBeGreaterThan(0);
+    off();
+    const m = n;
     store.undo();
-    expect(texts(store).slice(0, 3)).toEqual(['第一句', '', '']);
-    expect(findClip(store.getState().grid, bar.clips[0].id)).toBeTruthy();
+    expect(n).toBe(m);
   });
 });

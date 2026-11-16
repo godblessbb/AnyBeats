@@ -109,7 +109,7 @@ function setup(delayMs: number, offsetMs = 500) {
   editor.setOffsetMs(offsetMs);
   const input = new ChunkInputSource();
   const ctx = new LoopbackCtx(input, delayMs / 1000);
-  const s = editor.getState();
+  const s = editor.getState().doc;
   const transport = new FakeTransport(ctx, s.bpm, s.offsetMs);
   const store = new MemoryTakeStore();
   const recorder = new RecordController({ transport, editor, input, store, settings });

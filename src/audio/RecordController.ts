@@ -216,7 +216,7 @@ export class RecordController {
     const t = id ? this.takes.find((x) => x.id === id) : this.takes.find((x) => x.selected);
     if (!t) return;
     const r = alignedRegion(t);
-    const s = this.editor.getState();
+    const s = this.editor.getState().doc;
     const step = r ? Math.max(0, Math.floor((r.position - s.offsetMs / 1000) / (60 / s.bpm / 4))) : 0;
     this.set({ auditionId: t.id });
     void this.transport.play(step, { loop: false });
@@ -306,7 +306,8 @@ export class RecordController {
     this.capture = cap;
     this.set({ phase: 'recording', recordingName: name, deviceLabel: label });
     // 预备 1 小节：从选中格所在小节的前一小节开始
-    const from = playFrom(this.editor.getState().selection);
+    const cursor = this.editor.getState().cursor;
+    const from = playFrom(cursor === null ? null : { focus: cursor });
     const start = Math.max(0, Math.floor(from / STEPS_PER_BAR) * STEPS_PER_BAR - STEPS_PER_BAR);
     await this.transport.play(start, { loop: false });
     if (cap.cancelled) this.transport.stop();

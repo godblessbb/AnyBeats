@@ -10,7 +10,7 @@ const fmtMs = (ms: number) => `${Number.isInteger(ms) ? ms : ms.toFixed(1)} ms`;
 
 /** 首次录音前的 3 步延迟校准（calibrate.html） */
 function Calibration({ cal }: { cal: CalibrationState }) {
-  const { recorder } = useServices();
+  const recorder = useServices().recorder!; // 只在录音挂载时渲染
   const steps = [cal.step >= 1, cal.step >= 2, cal.step >= 3];
   const avg = cal.step === 3 ? cal.result : cal.currentMs;
   return (
@@ -130,7 +130,7 @@ function TrimField({ label, value, onChange, role }: { label: string; value: num
 }
 
 function TakeRow({ take, recording }: { take: TakeMeta; recording: boolean }) {
-  const { recorder } = useServices();
+  const recorder = useServices().recorder!; // 只在录音挂载时渲染
   const r = useRecorder();
   const t = useTransport();
   const auditioning = t.playing && r.auditionId === take.id;
@@ -167,7 +167,7 @@ function TakeRow({ take, recording }: { take: TakeMeta; recording: boolean }) {
 }
 
 export function RecordPanel() {
-  const { recorder } = useServices();
+  const recorder = useServices().recorder!; // 只在录音挂载时渲染
   const s = useEditor();
   const r = useRecorder();
   const t = useTransport();
@@ -178,7 +178,7 @@ export function RecordPanel() {
   const recording = r.phase === 'recording' || r.phase === 'starting';
   const selected = r.takes.find((x) => x.selected) ?? null;
   const bt = isLikelyBluetooth(r.latencyMs, r.deviceLabel);
-  const elapsed = recording && t.position !== null ? t.position * (60 / s.bpm / 4) : 0;
+  const elapsed = recording && t.position !== null ? t.position * (60 / s.doc.bpm / 4) : 0;
 
   return (
     <>

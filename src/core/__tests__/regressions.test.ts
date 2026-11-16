@@ -9,7 +9,7 @@ import { createAutosave } from '../autosave';
 import { estimateBpm } from '../bpm';
 import { initialGestureState, reduceGesture, type GestureEvent, type GestureState } from '../cellGesture';
 import { Clock } from '../clock';
-import { createGrid, createSection, findClip, insertClip, toggleAccent, type Grid } from '../grid';
+import { createGrid, createSection, insertWord } from '../grid';
 import { importAiLyrics } from '../importAi';
 import { playheadAt } from '../playhead';
 import { createProject } from '../project';
@@ -63,7 +63,7 @@ describe('回归 #1 播放高亮跟着时钟走，停止后复位', () => {
     for (let i = 0; i < 32; i++) {
       time.t = (i + 0.5) * dur; // 每格中间采一次样
       const p = playheadAt(grid, clock.position());
-      visited.push(`${p?.bar}.${p?.beat}.${p?.step}`);
+      visited.push(`${p?.global}.${p?.beat}.${p ? Math.floor(p.tick / 12) : -1}`);
     }
     const expected = Array.from({ length: 32 }, (_, i) => `${Math.floor(i / 16)}.${Math.floor((i % 16) / 4)}.${i % 16}`);
     expect(visited).toEqual(expected);
@@ -82,17 +82,17 @@ describe('回归 #2 双击标重音', () => {
   });
 
   it('新核心：同样的事件序列切换重音，并退出这次手势打开的编辑框', () => {
-    let grid: Grid = insertClip(createGrid(), { section: 0, bar: 0 }, { start: 0, length: 4, text: '我' });
-    const id = grid.sections[0].bars[0].clips[0].id;
+    const id = 'w1';
     let state: GestureState = initialGestureState;
     const target = { id, hasText: true };
     const events: GestureEvent[] = [{ type: 'click', target }, { type: 'click', target }, { type: 'dblclick', target }];
+    let toggles = 0;
     for (const e of events) {
       const r = reduceGesture(state, e);
       state = r.state;
-      for (const fx of r.effects) grid = toggleAccent(grid, fx.id);
+      toggles += r.effects.filter((fx) => fx.type === 'toggleAccent' && fx.id === id).length;
     }
-    expect(findClip(grid, id)?.clip.accent).toBe(true);
+    expect(toggles).toBe(1);
     expect(state).toEqual({ selected: id, editing: null });
     // 空格子双击不产生重音
     expect(reduceGesture(state, { type: 'dblclick', target: { id: 'x', hasText: false } }).effects).toEqual([]);
@@ -105,19 +105,19 @@ describe('回归 #3 AI 歌词导入保留 1/16 节奏', () => {
     expect(cells[0]).toEqual(['我走在街', '上感受', '节奏', '']);
   });
 
-  it('新核心：每个字落在自己的 1/16 格上，时长不丢', () => {
+  it('新核心：每个字落在自己的位置上（1/16 = 12 tick），时长不丢', () => {
     const r = importAiLyrics({ bpm: 90, timeSignature: '4/4', measures: [{ measureIndex: 0, lyrics: EXAMPLE_BAR }] });
-    const clips = r.bars[0].clips.map((c) => [c.text, c.start, c.length]);
-    expect(clips).toEqual([
-      ['我', 0, 1],
-      ['走', 1, 1],
-      ['在', 2, 1],
-      ['街', 3, 1],
-      ['上', 4, 2],
-      ['感', 6, 1],
-      ['受', 7, 1],
-      ['节', 8, 1],
-      ['奏', 9, 3],
+    const words = r.bars[0].words.map((w) => [w.text, w.tick, w.len]);
+    expect(words).toEqual([
+      ['我', 0, 12],
+      ['走', 12, 12],
+      ['在', 24, 12],
+      ['街', 36, 12],
+      ['上', 48, 24],
+      ['感', 72, 12],
+      ['受', 84, 12],
+      ['节', 96, 12],
+      ['奏', 108, 36],
     ]);
     expect(r.warnings).toEqual([]);
   });
@@ -139,8 +139,7 @@ describe('回归 #4 刷新不丢数据', () => {
   it('新核心：不论有没有名字，改动 1 秒内落盘；页面关闭时 flush 立即落盘；刷新后能恢复', () => {
     const store = new MemoryStore();
     const timers = new FakeTimers();
-    let grid = createGrid();
-    grid = insertClip(grid, { section: 0, bar: 0 }, { start: 0, length: 4, text: '我' });
+    const grid = insertWord(createGrid(), 0, 48, '我');
     const project = createProject({ grid, bpm: 87, offsetMs: 120 });
 
     const session1 = createAutosave({ store, timers, debounceMs: 1000 });

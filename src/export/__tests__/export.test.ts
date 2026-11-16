@@ -1,22 +1,20 @@
 import { unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
-import { createBar, createClip, createProject, createSection, type Project } from '../../core';
+import { createBar, createProject, createSection, createWord, guideEvents, TICKS_PER_BEAT, timeOfTick, type Project } from '../../core';
 import type { Take } from '../../audio/takes';
-import { renderMetronome } from '../clicks';
-import { buildReaperZip } from '../reaperZip';
+import { renderGuide, renderMetronome } from '../clicks';
+import { buildReaperZip, projectSeconds, safeName } from '../reaperZip';
 import { buildRpp, lyricRegions, num, projectRpp, quote, sectionMarkers, takeItem } from '../rpp';
 import { encodeWav, readWavHeader } from '../wav';
 
 const SR = 48000;
 
+/** 第 1 小节「凌晨——」（「晨」拖到第 2 拍末）、第 2 小节空、Hook 第 1 小节第 2 拍「夜车」 */
 function project(): Project {
-  const verse = createSection('verse', 0, '主歌');
-  verse.bars = [
-    createBar([createClip({ start: 0, text: '凌' }), createClip({ start: 1, text: '晨' }), createClip({ start: 2, length: 2, hold: true })]),
-    createBar(),
-  ];
+  const verse = createSection('verse', 0, 'Verse 1');
+  verse.bars = [createBar([createWord({ tick: 0, len: 12, text: '凌' }), createWord({ tick: 12, len: 84, text: '晨' })]), createBar()];
   const hook = createSection('hook', 0, 'Hook');
-  hook.bars = [createBar([createClip({ start: 4, text: '夜', accent: true }), createClip({ start: 5, text: '车' })])];
+  hook.bars = [createBar([createWord({ tick: 48, len: 12, text: '夜' }), createWord({ tick: 60, len: 12, text: '车' })])];
   return createProject({ name: '夜车', bpm: 90, offsetMs: 120, grid: { sections: [verse, hook] } });
 }
 
@@ -100,13 +98,18 @@ describe('.RPP 生成', () => {
     const rpp = projectRpp({ project: p, sampleRate: SR, tracks: [] });
     const bar = (60 / 90) * 4;
     expect(rpp).toContain('MARKER 1 0.12 "首拍 +120ms" 0');
-    expect(rpp).toContain('MARKER 2 0.12 "主歌" 0');
+    expect(rpp).toContain('MARKER 2 0.12 "Verse 1" 0');
     expect(rpp).toContain(`MARKER 3 ${num(0.12 + 2 * bar)} "Hook" 0`);
     // 第 1 小节「凌晨」、第 3 小节「夜车」；空的第 2 小节不出 region
     expect(rpp).toContain(`MARKER 4 0.12 "凌晨" 1\n  MARKER 4 ${num(0.12 + bar)} "" 1`);
     expect(rpp).toContain(`MARKER 5 ${num(0.12 + 2 * bar)} "夜车" 1`);
     expect(lyricRegions(p)).toHaveLength(2);
-    expect(sectionMarkers(p).map((m) => m.name)).toEqual(['主歌', 'Hook']);
+    expect(sectionMarkers(p).map((m) => m.name)).toEqual(['Verse 1', 'Hook']);
+    // region 是整小节的起止（跟字的落点无关）
+    const hook = lyricRegions(p)[1];
+    expect(hook.name).toBe('夜车');
+    expect(hook.start).toBeCloseTo(0.12 + 2 * bar, 9);
+    expect(hook.end).toBeCloseTo(0.12 + 3 * bar, 9);
   });
 
   it('take 的 ITEM POSITION = 录音起点 − 校准延迟 + 裁头；SOFFS = 裁头；LENGTH = 裁后长度', () => {
@@ -152,6 +155,16 @@ describe('Reaper zip 打包', () => {
     expect(rpp).toMatch(/NAME "Take 1"\n\s+VOLPAN [^\n]+\n\s+MUTESOLO 1 0 0/);
     expect(rpp).toMatch(/NAME "Take 2 ★"\n\s+VOLPAN [^\n]+\n\s+MUTESOLO 0 0 0/);
     expect(readWavHeader(zip['audio/backing.wav'])).toMatchObject({ channels: 2, sampleRate: SR, bits: 24 });
+    // 节拍器 / 导唱铺满整个工程长度（3 小节 + 首拍偏移，比伴奏和 take 都长）
+    const seconds = projectSeconds(project(), 3, takes);
+    expect(seconds).toBeCloseTo(0.12 + 3 * 4 * (60 / 90), 9);
+    for (const f of ['audio/click.wav', 'audio/guide.wav']) expect(readWavHeader(zip[f]).frames).toBe(Math.ceil(seconds * SR));
+    expect(rpp).toMatch(/NAME "导唱"\n\s+VOLPAN 0.5 /);
+  });
+
+  it('文件名去掉不能用的字符', () => {
+    expect(safeName('夜车: v2/最终?')).toBe('夜车_ v2_最终_');
+    expect(safeName('  ')).toBe('AnyBeats');
   });
 
   it('只勾伴奏：没有 take 文件', () => {
@@ -167,5 +180,36 @@ describe('Reaper zip 打包', () => {
     expect(at(0.12)).toBeGreaterThan(0.01);
     expect(at(0.12 + beat)).toBeGreaterThan(0.01);
     expect(Math.abs(pcm[Math.round((0.12 + beat / 2) * 8000)])).toBeLessThan(1e-3);
+  });
+
+  it('导唱渲染：每个字一声、按字的长度拉长，长字比短字响得久；空白不出声', () => {
+    const p = project();
+    const sr = 8000;
+    const pcm = renderGuide(p, 9, sr);
+    expect(pcm.length).toBe(9 * sr);
+    expect(guideEvents(p.grid).map((e) => e.len)).toEqual([12, 84, 12, 12]);
+    const t = (tick: number) => timeOfTick(p, tick);
+    /** [from, to) 秒里从 from 起最后一个出声的采样离 from 多远 */
+    const span = (from: number, to: number) => {
+      let last = -1;
+      for (let i = Math.round(from * sr); i < Math.min(pcm.length, Math.round(to * sr)); i++) if (Math.abs(pcm[i]) > 1e-3) last = i;
+      return last < 0 ? 0 : last / sr - from;
+    };
+    const peak = (from: number, to: number) => {
+      let m = 0;
+      for (let i = Math.round(from * sr); i < Math.round(to * sr); i++) m = Math.max(m, Math.abs(pcm[i]));
+      return m;
+    };
+    const tickSec = 60 / 90 / TICKS_PER_BEAT;
+    const short = span(t(0), t(12)); // 「凌」12 tick
+    const long = span(t(12), t(12 + 84 + 48)); // 「晨」84 tick
+    expect(short).toBeGreaterThan(0.08);
+    expect(short).toBeLessThan(12 * tickSec);
+    expect(long).toBeGreaterThan(84 * tickSec * 0.85);
+    expect(long).toBeLessThan(84 * tickSec);
+    expect(long).toBeGreaterThan(5 * short);
+    // 「晨」之后到 Hook 的「夜」之前全是空白（含空的第 2 小节）：不出声
+    expect(peak(t(12 + 84) + 0.01, t(2 * 192 + 48) - 0.01)).toBe(0);
+    expect(peak(t(2 * 192 + 48), t(2 * 192 + 48) + 0.02)).toBeGreaterThan(0.01);
   });
 });
