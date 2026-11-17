@@ -1,7 +1,19 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from 'react';
-import { minCellWidth, playheadAt, SECTION_KIND_NAMES, SECTION_KINDS, TICKS_PER_BAR, TICKS_PER_BEAT, wordSize, type SectionKind } from '../core';
+import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from 'react';
+import {
+  MAX_BEAT_CHARS,
+  minCellWidth,
+  playheadAt,
+  precisionUnit,
+  SECTION_KIND_NAMES,
+  SECTION_KINDS,
+  TICKS_PER_BAR,
+  TICKS_PER_BEAT,
+  totalTicks,
+  wordSize,
+  type SectionKind,
+} from '../core';
 import type { EditorState } from '../engine/editorStore';
-import { cellName, sheetView, type CellView, type RowView, type SegView, type WordView } from '../engine/view';
+import { cellName, sheetView, type CellView, type RowView, type TintView, type WordView } from '../engine/view';
 import { Icon } from './icons';
 import { Menu, type MenuItem } from './Menu';
 import { useEditor, useServices, useTransport } from './services';
@@ -14,50 +26,106 @@ interface Sizing {
   base: number;
 }
 
-function WordInput({ abs, initial }: { abs: number; initial: string }) {
+/** 正在拖字的长度：字的起点、拖到的（吸附后的）结束位置，指针在哪（显示小提示） */
+interface Stretch {
+  abs: number;
+  end: number;
+  x: number;
+  y: number;
+}
+
+/** 拖长度的入口：格子里的把手按下时调用（放在 context 里，行组件不用跟着重画） */
+const StretchCtx = createContext<(w: WordView, e: RPointerEvent<HTMLSpanElement>) => void>(() => {});
+
+const SPLIT_NAMES = ['1/4', '1/8', '三连', '1/16'];
+
+/** 双击格子：整格变成输入框，改这一拍的字；下面实时说明回车后怎么排 */
+function CellEditor({ global, beat, initial }: { global: number; beat: number; initial: string }) {
   const { store } = useServices();
+  const [value, setValue] = useState(initial);
   const done = useRef(false);
   const finish = (fn: () => void) => {
     if (done.current) return;
     done.current = true;
     fn();
   };
+  const plan = store.beatTextPlan(global, beat, value);
+  let hint: React.ReactNode;
+  let warn = false;
+  if (plan.how === 'clear') hint = <b>清空这一拍的字（位置保留）</b>;
+  else if (plan.how === 'fill')
+    hint = (
+      <>
+        <b>
+          {plan.n} 个字 · 按这一拍原来的 {plan.slots} 个位置依次填
+        </b>
+        <span className="k">节奏不变{plan.slots > plan.n ? `；后面 ${plan.slots - plan.n} 个位置清空` : ''}。</span>
+      </>
+    );
+  else if (plan.how === 'split')
+    hint = (
+      <>
+        <b>
+          {plan.n} 个字 → 这一拍平分 {plan.n} 份（{SPLIT_NAMES[plan.n - 1]}）
+        </b>
+        {plan.slots > 0 && <span className="k">原来只有 {plan.slots} 个位置，放不下；回车后这一拍改成平分，原来的节奏不保留。</span>}
+      </>
+    );
+  else if (plan.how === 'too-many') {
+    warn = true;
+    hint = (
+      <>
+        <b className="warn">一拍最多 {MAX_BEAT_CHARS} 个字（现在 {plan.n} 个）</b>
+        <span className="k">要更密的节奏，先到「① 铺 flow」把这一拍分细；现在回车什么都不写。</span>
+      </>
+    );
+  } else {
+    warn = true;
+    hint = (
+      <>
+        <b className="warn">这一拍有锁住的字，不能重新分</b>
+        <span className="k">先解锁，或者只打 {plan.slots} 个字以内。</span>
+      </>
+    );
+  }
   return (
-    <input
-      className="slot-input"
-      data-role="word-input"
-      defaultValue={initial}
-      autoFocus
-      aria-label="填字：一个位置一个字，多打的字依次填进后面的位置"
-      onFocus={(e) => e.currentTarget.select()}
-      onClick={(e) => e.stopPropagation()}
-      onPointerDown={(e) => e.stopPropagation()}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+    <div className="cell-edit" onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+      <input
+        className="cell-input"
+        data-role="cell-editor"
+        value={value}
+        autoFocus
+        aria-label={`改${cellName(global, beat)}的字：打几个字这一拍就排几个字，最多 ${MAX_BEAT_CHARS} 个`}
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => setValue(e.currentTarget.value)}
+        onKeyDown={(e) => {
+          e.stopPropagation();
+          if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+            const v = e.currentTarget.value;
+            finish(() => store.commitBeatText(global, beat, v));
+          } else if (e.key === 'Escape') finish(() => store.cancelEdit());
+        }}
+        onBlur={(e) => {
           const v = e.currentTarget.value;
-          finish(() => {
-            store.commitText(abs, v);
-            // 接着填下一个字
-            const next = store.getState().cursor;
-            if (v && next !== null && next !== abs) store.startEdit(next);
-          });
-        } else if (e.key === 'Escape') finish(() => store.cancelEdit());
-      }}
-      onBlur={(e) => {
-        const v = e.currentTarget.value;
-        finish(() => (v === initial ? store.cancelEdit() : store.commitText(abs, v)));
-      }}
-    />
+          finish(() => (v === initial ? store.cancelEdit() : store.commitBeatText(global, beat, v)));
+        }}
+      />
+      <div className={`edit-tip${warn ? ' bad' : ''}`} data-role="edit-tip" role="status">
+        {hint}
+        <span className="k">
+          只改{cellName(global, beat)}，<b>下一拍不动</b>。<span className="kbd">Enter</span> 确定（算一步，可撤销）· <span className="kbd">Esc</span> 取消
+        </span>
+      </div>
+    </div>
   );
 }
 
-function segStyle(sg: SegView, c0: number): Css {
+/** 一段拖音浅底在这一格里的位置（左右各留 1px 缝；接着下一格的那头盖住格线） */
+function tintStyle(s: number, e: number, head: boolean, tail: boolean, c0: number): Css {
   const pct = (t: number) => ((t - c0) / TICKS_PER_BEAT) * 100;
   return {
-    left: sg.first ? `calc(${pct(sg.s)}% - 1px)` : '0px',
-    right: sg.last ? `calc(${100 - pct(sg.e)}% + 2px)` : '-1px',
-    '--h': sg.hue ?? undefined,
+    left: head ? `calc(${pct(s)}% + 1px)` : '-1px',
+    right: tail ? `calc(${100 - pct(e)}% + 1px)` : '-1px',
   };
 }
 
@@ -66,29 +134,30 @@ interface CellProps {
   step: 1 | 2;
   sizing: Sizing;
   selected: boolean;
-  anchor: boolean;
+  /** 只选了这一格（触屏上这时才显示改长度的把手） */
+  solo: boolean;
   cursor: number | null;
-  editing: number | null;
+  editing: boolean;
   nowAbs: number | null;
   nowCell: boolean;
-  band: number | null;
   holdTip: EditorState['holdTip'];
-  selMode: EditorState['selMode'];
-  invert: boolean;
+  /** 正在拖长度的字（预览经过这一格时画出来） */
+  stretch: Stretch | null;
 }
 
 const Cell = memo(function Cell(p: CellProps) {
   const { store } = useServices();
+  const beginStretch = useContext(StretchCtx);
   const c = p.cell;
   const c0 = c.global * TICKS_PER_BAR + c.beat * TICKS_PER_BEAT;
-  const [stretch, setStretch] = useState<{ abs: number; end: number } | null>(null);
 
   const cls = ['cell'];
   if (c.rule) cls.push('painted');
   if (c.lockedCell) cls.push('locked');
-  if (p.selected) cls.push('sel-in');
-  if (p.anchor) cls.push('anchor');
+  if (p.selected) cls.push('sel');
+  if (p.solo) cls.push('solo');
   if (p.nowCell) cls.push('now');
+  if (p.editing) cls.push('editing');
   if (p.holdTip?.key === c.key) cls.push('hold-hit');
 
   const tickAt = (e: { clientX: number }, el: HTMLElement) => {
@@ -102,44 +171,39 @@ const Cell = memo(function Cell(p: CellProps) {
     else store.clickCell(c.global, c.beat);
   };
 
-  /** 拖字框右边缘：手指 / 鼠标停在哪一格的哪个位置，字就拖到那里（吸附到精度） */
-  const startStretch = (w: WordView) => (e: RPointerEvent<HTMLSpanElement>) => {
-    e.stopPropagation();
-    e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
-    const endAt = (ev: { clientX: number; clientY: number }) => {
-      const under = document.elementsFromPoint(ev.clientX, ev.clientY).find((el) => (el as HTMLElement).dataset?.role === 'cell') as HTMLElement | undefined;
-      if (!under) return null;
-      const g = Number(under.dataset.bar) - 1;
-      const beat = Number(under.dataset.beat);
-      const r = under.getBoundingClientRect();
-      const frac = Math.max(0, Math.min(1, (ev.clientX - r.left - under.clientLeft) / under.clientWidth));
-      return g * TICKS_PER_BAR + beat * TICKS_PER_BEAT + Math.round(frac * TICKS_PER_BEAT);
-    };
-    const target = e.currentTarget;
-    const move = (ev: PointerEvent) => {
-      const end = endAt(ev);
-      if (end !== null) setStretch({ abs: w.abs, end });
-    };
-    const up = (ev: PointerEvent) => {
-      target.removeEventListener('pointermove', move);
-      target.removeEventListener('pointerup', up);
-      target.removeEventListener('pointercancel', up);
-      setStretch(null);
-      const end = endAt(ev);
-      if (end !== null && end > w.abs) store.stretchWord(w.abs, end);
-    };
-    target.addEventListener('pointermove', move);
-    target.addEventListener('pointerup', up);
-    target.addEventListener('pointercancel', up);
-  };
+  // 把手：放在字结束的地方（字没拖长 = 字的右边；拖长了 = 浅底最后一段的右边）
+  const grip = (w: WordView) => (
+    <span
+      className="grip"
+      data-role="hold-grip"
+      data-word={w.id}
+      title="左右拖：改这个字的长度（吸附到第 1 步选的精度）"
+      onPointerDown={(e) => beginStretch(w, e)}
+    ></span>
+  );
+  const wordById = (id: string) => c.words.find((w) => w.id === id);
+
+  const stretch = p.stretch;
+  const pv = stretch && stretch.abs < c0 + TICKS_PER_BEAT && stretch.end > c0 ? { s: Math.max(stretch.abs, c0), e: Math.min(stretch.end, c0 + TICKS_PER_BEAT) } : null;
 
   return (
-    <div className={cls.join(' ')} data-role="cell" data-bar={c.global + 1} data-beat={c.beat} data-content={c.content} data-key={c.key} style={{ '--h': c.rule?.hue } as Css} onClick={onCellClick}>
+    <div
+      className={cls.join(' ')}
+      data-role="cell"
+      data-bar={c.global + 1}
+      data-beat={c.beat}
+      data-content={c.content}
+      data-key={c.key}
+      data-selected={p.selected ? '1' : undefined}
+      style={{ '--h': c.rule?.hue } as Css}
+      onClick={onCellClick}
+      onDoubleClick={() => {
+        if (p.step === 2) store.editCell(c.global, c.beat);
+      }}
+    >
       {[0, 1, 2, 3].map((k) => (
         <span key={k} className="tk" data-role="tick-line" style={{ left: `${k * 25}%` }}></span>
       ))}
-      {p.band !== null && <span className="band" style={{ left: `${p.band * 25}%`, width: '25%' }}></span>}
       {c.cellLockIcon && (
         <span className="clock" data-role="lock-icon">
           <Icon.lock />
@@ -160,22 +224,39 @@ const Cell = memo(function Cell(p: CellProps) {
           </span>
         </>
       )}
+      {c.tints.map((t: TintView) => (
+        <span
+          key={t.wordId}
+          className={`tint ${t.tone}${t.head ? '' : ' cont'}${t.tail ? '' : ' more'}${p.cursor === t.s && t.head ? ' cur' : ''}`}
+          data-role="hold-tint"
+          data-word={t.wordId}
+          data-from={`${t.fromBar + 1}:${t.fromBeat}:${t.fromOff}`}
+          data-s={t.s}
+          data-e={t.e}
+          style={{ ...tintStyle(t.s, t.e, t.head, t.tail, c0), '--h': t.hue ?? undefined } as Css}
+        >
+          {t.tail && grip(wordById(t.wordId) ?? holdWord(t))}
+        </span>
+      ))}
+      {pv && (
+        <span className={`tint preview${pv.s === stretch!.abs ? '' : ' cont'}${pv.e === stretch!.end ? '' : ' more'}`} data-role="hold-preview" data-s={pv.s} data-e={pv.e} style={tintStyle(pv.s, pv.e, pv.s === stretch!.abs, pv.e === stretch!.end, c0)}></span>
+      )}
       {c.words.map((w) => {
         const size = wordSize(w.box, p.sizing.cell, p.sizing.base);
-        const k = ['slot', 'word'];
-        if (w.text) k.push('filled');
+        const k = ['wd'];
         if (w.final) k.push('rp');
-        if (size.dense) k.push('dense');
-        else if (size.font < p.sizing.base) k.push('narrow');
+        if (!w.text) k.push('blank');
+        if (size.font < p.sizing.base) k.push('narrow');
         if (w.mismatch) k.push('miss');
-        if (p.cursor === w.abs && p.editing !== w.abs) k.push('cursor');
+        if (p.cursor === w.abs && !p.editing) k.push('cur');
         if (p.nowAbs === w.abs) k.push('now');
         return (
           <span
             key={w.id}
             className={k.join(' ')}
-            data-role="slot"
+            data-role="word"
             data-kind="word"
+            data-word={w.id}
             data-tick={w.off}
             data-len={w.len}
             data-box={w.box}
@@ -185,13 +266,10 @@ const Cell = memo(function Cell(p: CellProps) {
             data-locked={w.locked ? '1' : undefined}
             style={{ '--t': w.off, '--l': w.box, '--fs': `${size.font}px`, '--h': w.hue ?? undefined } as Css}
             onClick={(e) => {
+              // 第 1 步点字：选中它（拖长、按 - / ⌫ 用）；第 2 步字不接点击，点的是整格
+              if (p.step !== 1) return;
               e.stopPropagation();
-              if (p.step === 1) store.focusWord(w.abs);
-              else {
-                store.clickCell(c.global, c.beat);
-                if (p.selMode === 'cell' && !p.invert) store.startEdit(w.abs);
-                else store.focusWord(w.abs);
-              }
+              store.focusWord(w.abs);
             }}
           >
             {w.text ? (
@@ -206,26 +284,11 @@ const Cell = memo(function Cell(p: CellProps) {
                 <Icon.lock />
               </span>
             )}
-            {p.step === 1 && p.cursor === w.abs && <span className="grip" data-role="stretch-handle" title="往右拖：拉长这个字" onPointerDown={startStretch(w)} onClick={(e) => e.stopPropagation()}></span>}
-            {p.editing === w.abs && <WordInput abs={w.abs} initial={w.text} />}
+            {w.len <= w.box && grip(w)}
           </span>
         );
       })}
-      {c.segs.map((sg) => (
-        <span
-          key={sg.wordId}
-          className={`dl ${sg.tone}${sg.last ? ' end' : ''}`}
-          data-role="drag-line"
-          data-from={`${sg.fromBar + 1}:${sg.fromBeat}:${sg.fromOff}`}
-          data-word={sg.wordId}
-          data-s={sg.s}
-          data-e={sg.e}
-          style={segStyle(sg, c0)}
-        ></span>
-      ))}
-      {stretch && stretch.end > c0 && (
-        <span className="dl preview" style={{ left: '0px', right: `${Math.max(0, 100 - ((stretch.end - c0) / TICKS_PER_BEAT) * 100)}%` }}></span>
-      )}
+      {p.editing && <CellEditor global={c.global} beat={c.beat} initial={c.words.map((w) => w.text).join('')} />}
       {p.holdTip?.key === c.key && (
         <div className="hold-tip" role="status" data-role="hold-only-tip" onClick={(e) => e.stopPropagation()}>
           <b>这一拍只有拖音</b>
@@ -238,6 +301,12 @@ const Cell = memo(function Cell(p: CellProps) {
   );
 });
 
+/** 拖进别的格子的浅底最后一段：把手要知道是哪个字（只用到起点和 id） */
+function holdWord(t: TintView): WordView {
+  const abs = t.fromBar * TICKS_PER_BAR + t.fromBeat * TICKS_PER_BEAT + t.fromOff;
+  return { id: t.wordId, abs, tick: abs % TICKS_PER_BAR, off: t.fromOff, len: t.e - abs, box: 0, text: '', final: null, hue: t.hue, locked: false, rhymeLocked: false, mismatch: null };
+}
+
 interface RowProps {
   row: RowView;
   state: EditorState;
@@ -246,9 +315,10 @@ interface RowProps {
   nowKey: string | null;
   selected: Set<string>;
   rowOn: boolean;
+  stretch: Stretch | null;
 }
 
-const Row = memo(function Row({ row, state, sizing, nowAbs, nowKey, selected, rowOn }: RowProps) {
+const Row = memo(function Row({ row, state, sizing, nowAbs, nowKey, selected, rowOn, stretch }: RowProps) {
   const { store } = useServices();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const ref = useRef<HTMLDivElement>(null);
@@ -275,6 +345,8 @@ const Row = memo(function Row({ row, state, sizing, nowAbs, nowKey, selected, ro
       </span>,
     );
   }
+  const rowStart = row.global * TICKS_PER_BAR;
+  const rowStretch = stretch && stretch.abs < rowStart + TICKS_PER_BAR && stretch.end > rowStart ? stretch : null;
   return (
     <div className="row" data-role="row" data-bar={row.global + 1} ref={ref}>
       <div
@@ -297,24 +369,25 @@ const Row = memo(function Row({ row, state, sizing, nowAbs, nowKey, selected, ro
           </span>
         )}
       </div>
-      {row.cells.map((c) => (
-        <Cell
-          key={c.key}
-          cell={c}
-          step={state.step}
-          sizing={sizing}
-          selected={selected.has(c.key)}
-          anchor={!!state.anchor && state.anchor.bar === c.global && state.anchor.beat === c.beat}
-          cursor={state.cursor !== null && Math.floor(state.cursor / TICKS_PER_BEAT) === Math.floor((c.global * TICKS_PER_BAR + c.beat * TICKS_PER_BEAT) / TICKS_PER_BEAT) ? state.cursor : null}
-          editing={state.editing}
-          nowAbs={nowAbs}
-          nowCell={nowKey === c.key}
-          band={state.band && state.band.beat === c.beat ? state.band.sub : null}
-          holdTip={state.holdTip}
-          selMode={state.selMode}
-          invert={state.invert}
-        />
-      ))}
+      {row.cells.map((c) => {
+        const c0 = c.global * TICKS_PER_BAR + c.beat * TICKS_PER_BEAT;
+        return (
+          <Cell
+            key={c.key}
+            cell={c}
+            step={state.step}
+            sizing={sizing}
+            selected={selected.has(c.key)}
+            solo={selected.size === 1 && selected.has(c.key)}
+            cursor={state.cursor !== null && state.cursor >= c0 && state.cursor < c0 + TICKS_PER_BEAT ? state.cursor : null}
+            editing={state.editing?.key === c.key}
+            nowAbs={nowAbs}
+            nowCell={nowKey === c.key}
+            holdTip={state.holdTip}
+            stretch={rowStretch && rowStretch.abs < c0 + TICKS_PER_BEAT && rowStretch.end > c0 ? rowStretch : null}
+          />
+        );
+      })}
       <div className="lab">{lab}</div>
       {menu && <Menu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
     </div>
@@ -350,6 +423,123 @@ function SectionHeader({ index, label, kind, bars }: { index: number; label: str
       {menu && <Menu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
     </div>
   );
+}
+
+const SECTION_HINTS: Record<SectionKind, string> = {
+  intro: '开头',
+  verse: '主体叙事',
+  hook: '反复唱的记忆点',
+  bridge: '转折过渡',
+  outro: '收尾',
+};
+
+/** 「+ 段落」：先选段落类型，加在最后（4 小节） */
+function AddSection() {
+  const { store } = useServices();
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const items: MenuItem[] = SECTION_KINDS.map((k) => ({ label: `${SECTION_KIND_NAMES[k]} · ${SECTION_HINTS[k]}`, onClick: () => store.addSection(k) }));
+  return (
+    <>
+      <button
+        className={`btn sm${menu ? ' on' : ''}`}
+        data-role="add-section"
+        aria-haspopup="menu"
+        aria-expanded={!!menu}
+        title="加一段：选 Intro / Verse / Hook / Bridge / Outro，加在最后（4 小节）"
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setMenu(menu ? null : { x: r.left, y: r.top - (items.length * 30 + 14) });
+        }}
+      >
+        <Icon.plus />
+        段落
+      </button>
+      {menu && <Menu x={menu.x} y={menu.y} items={items} onClose={() => setMenu(null)} />}
+    </>
+  );
+}
+
+interface Box {
+  l: number;
+  t: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * 选中框：量出选中格子的位置，拼成尽量少的几个矩形——同一行连着的几拍并成一段，上下相邻小节（跨段落也算相邻）同样的几拍再并成一块。
+ * 一块里夹着段落标题时，标题那一行同一列垫一层浅色，看起来不断开。
+ */
+function useSelectionBoxes(sheet: React.RefObject<HTMLDivElement | null>, selection: string[], deps: unknown[]): { boxes: Box[]; bands: Box[] } {
+  const [out, setOut] = useState<{ boxes: Box[]; bands: Box[] }>({ boxes: [], bands: [] });
+  const [bump, setBump] = useState(0);
+  useEffect(() => {
+    const el = sheet.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setBump((n) => n + 1));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [sheet]);
+  useLayoutEffect(() => {
+    const el = sheet.current;
+    if (!el || !selection.length) {
+      setOut((o) => (o.boxes.length || o.bands.length ? { boxes: [], bands: [] } : o));
+      return;
+    }
+    const keys = new Set(selection);
+    const cells = [...el.querySelectorAll<HTMLElement>('[data-role="cell"]')].filter((c) => keys.has(c.dataset.key!));
+    const byBar = new Map<number, Map<number, HTMLElement>>();
+    for (const c of cells) {
+      const g = Number(c.dataset.bar);
+      if (!byBar.has(g)) byBar.set(g, new Map());
+      byBar.get(g)!.set(Number(c.dataset.beat), c);
+    }
+    interface Run {
+      b0: number;
+      b1: number;
+      first: HTMLElement;
+      last: HTMLElement;
+      bar: number;
+    }
+    const done: Run[] = [];
+    let open: Run[] = [];
+    for (const g of [...byBar.keys()].sort((a, b) => a - b)) {
+      const beats = byBar.get(g)!;
+      const runs: { b0: number; b1: number }[] = [];
+      for (const b of [...beats.keys()].sort((a, b2) => a - b2)) {
+        const r = runs[runs.length - 1];
+        if (r && r.b1 === b - 1) r.b1 = b;
+        else runs.push({ b0: b, b1: b });
+      }
+      const next: Run[] = [];
+      for (const r of runs) {
+        const prev = open.find((o) => o.bar === g - 1 && o.b0 === r.b0 && o.b1 === r.b1);
+        if (prev) {
+          prev.last = beats.get(r.b1)!;
+          prev.bar = g;
+          next.push(prev);
+          open = open.filter((o) => o !== prev);
+        } else next.push({ b0: r.b0, b1: r.b1, first: beats.get(r.b0)!, last: beats.get(r.b1)!, bar: g });
+      }
+      done.push(...open);
+      open = next;
+    }
+    done.push(...open);
+    const sr = el.getBoundingClientRect();
+    const heads = [...el.querySelectorAll<HTMLElement>('[data-role="section-header"]')].map((h) => h.getBoundingClientRect());
+    const boxes: Box[] = [];
+    const bands: Box[] = [];
+    for (const r of done) {
+      const a = r.first.getBoundingClientRect();
+      const b = r.last.getBoundingClientRect();
+      const box = { l: a.left - sr.left - 1, t: a.top - sr.top - 1, w: b.right - a.left + 1, h: b.bottom - a.top + 1 };
+      boxes.push(box);
+      for (const h of heads) if (h.top > a.top && h.bottom < b.bottom) bands.push({ l: box.l + 1, t: h.top - sr.top, w: box.w - 1, h: h.height });
+    }
+    setOut({ boxes, bands });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sheet, selection, bump, ...deps]);
+  return out;
 }
 
 /** 量出一拍的格宽；格子窄于最小字宽要求时整张表左右滑（每拍至少 minCell px） */
@@ -399,61 +589,131 @@ export function LyricsGrid() {
   const selected = useMemo(() => new Set(s.selection), [s.selection]);
   const rowOn = (r: RowView) => r.cells.every((c) => selected.has(c.key));
   const locks = s.doc.locks;
+  const { boxes, bands } = useSelectionBoxes(sheetRef, s.selection, [view, sizing.cell, scroll]);
+
+  // ---- 拖字的长度：吸附到第 1 步的精度，最多到下一个字的起点 / 全曲末尾 ----
+  const [stretch, setStretch] = useState<Stretch | null>(null);
+  const starts = useMemo(() => view.rows.flatMap((r) => r.cells.flatMap((c) => c.words.map((w) => w.abs))), [view]);
+  const total = totalTicks(s.doc.grid);
+  const live = useRef({ precision: s.precision, starts, total });
+  useEffect(() => {
+    live.current = { precision: s.precision, starts, total };
+  }, [s.precision, starts, total]);
+  const beginStretch = useCallback(
+    (w: WordView, e: RPointerEvent<HTMLSpanElement>) => {
+      e.stopPropagation();
+      const id = e.pointerId;
+      const x0 = e.clientX;
+      let moved = false;
+      const rawEnd = (ev: { clientX: number; clientY: number }) => {
+        const under = document.elementsFromPoint(ev.clientX, ev.clientY).find((el) => (el as HTMLElement).dataset?.role === 'cell') as HTMLElement | undefined;
+        if (!under) return null;
+        const g = Number(under.dataset.bar) - 1;
+        const beat = Number(under.dataset.beat);
+        const r = under.getBoundingClientRect();
+        const frac = Math.max(0, Math.min(1, (ev.clientX - r.left - under.clientLeft) / under.clientWidth));
+        return g * TICKS_PER_BAR + beat * TICKS_PER_BEAT + Math.round(frac * TICKS_PER_BEAT);
+      };
+      const snapped = (end: number) => {
+        const { precision, starts: st, total } = live.current;
+        const unit = precisionUnit(precision);
+        const len = Math.max(Math.min(unit, w.len), Math.round(Math.max(1, end - w.abs) / unit) * unit);
+        const limit = (st.find((x) => x > w.abs) ?? total) - w.abs;
+        return w.abs + Math.max(1, Math.min(limit, len));
+      };
+      // 监听挂在 window 上：拖动中格子会重画，把手元素可能被换掉，松手照样收得到
+      const move = (ev: PointerEvent) => {
+        if (ev.pointerId !== id) return;
+        if (Math.abs(ev.clientX - x0) > 3) moved = true;
+        if (!moved) return;
+        const end = rawEnd(ev);
+        if (end !== null) setStretch({ abs: w.abs, end: snapped(end), x: ev.clientX, y: ev.clientY });
+      };
+      const up = (ev: PointerEvent) => {
+        if (ev.pointerId !== id) return;
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+        setStretch(null);
+        if (moved) {
+          // 拖完松手时浏览器还会补一次点击：吞掉，免得第 1 步在松手的地方又放一个字
+          const eat = (c: MouseEvent) => c.stopPropagation();
+          window.addEventListener('click', eat, { capture: true, once: true });
+          setTimeout(() => window.removeEventListener('click', eat, { capture: true }), 0);
+        }
+        // 只按了一下没拖（例如单击 / 双击正好点在把手上）：不改长度，照常当成点格子
+        const end = ev.type === 'pointercancel' || !moved ? null : rawEnd(ev);
+        if (end !== null && end > w.abs) store.stretchWord(w.abs, end);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    },
+    [store],
+  );
+  const tipText = stretch
+    ? `拖到 第 ${Math.floor(stretch.end / TICKS_PER_BAR) + 1} 小节第 ${Math.floor((stretch.end % TICKS_PER_BAR) / TICKS_PER_BEAT) + 1} 拍 · 第 ${Math.floor((stretch.end % TICKS_PER_BEAT) / 12) + 1} 个 16 分`
+    : '';
 
   return (
-    <div
-      className={`sheet${scroll ? ' scroll' : ''}`}
-      data-role="lyrics-sheet"
-      data-step={s.step}
-      ref={sheetRef}
-      style={{ '--cell-min': scroll ? `${minCell + 1}px` : '0px', minWidth } as Css}
-    >
-      <div className="sh-head">
-        <div className="corner">小节 \ 拍</div>
-        {[0, 1, 2, 3].map((bi) => (
-          <div key={bi} className="colh" data-role="beat-head" data-beat={bi}>
-            <button className="bn" aria-label={`选中第 ${bi + 1} 拍整列`} onClick={() => store.selectColumn(bi)}>
-              {bi + 1}
-              {locks.beats.includes(bi) && (
-                <span data-role="lock-icon">
-                  <Icon.lock />
+    <StretchCtx.Provider value={beginStretch}>
+      <div
+        className={`sheet${scroll ? ' scroll' : ''}${stretch ? ' stretching' : ''}`}
+        data-role="lyrics-sheet"
+        data-step={s.step}
+        ref={sheetRef}
+        style={{ '--cell-min': scroll ? `${minCell + 1}px` : '0px', minWidth } as Css}
+      >
+        <div className="sh-head">
+          <div className="corner">小节 \ 拍</div>
+          {[0, 1, 2, 3].map((bi) => (
+            <div key={bi} className={`colh${s.selColumn === bi ? ' on' : ''}`} data-role="beat-head" data-beat={bi}>
+              <button className="bn" data-role="beat-head-btn" aria-label={`选中第 ${bi + 1} 拍整列`} title={`点：选中整首第 ${bi + 1} 拍这一列（空格子不算）`} onClick={() => store.selectColumn(bi)}>
+                <span className="num">
+                  {bi + 1}
+                  {locks.beats.includes(bi) && (
+                    <span data-role="lock-icon">
+                      <Icon.lock />
+                    </span>
+                  )}
                 </span>
-              )}
-            </button>
-            <div className="subs">
-              {[0, 1, 2, 3].map((k) => (
-                <button
-                  key={k}
-                  className={`sub${s.band && s.band.beat === bi && s.band.sub === k ? ' on' : ''}`}
-                  data-role="sub-tick"
-                  data-sub={k}
-                  aria-label={`第 ${bi + 1} 拍第 ${k + 1} 个 16 分（整首这一列）`}
-                  onClick={() => store.setBand({ beat: bi, sub: k })}
-                ></button>
-              ))}
+                <span className="rul" aria-hidden="true">
+                  {[0, 1, 2, 3].map((k) => (
+                    <i key={k} style={{ left: `${k * 25}%` }}></i>
+                  ))}
+                </span>
+              </button>
             </div>
+          ))}
+          <div className="lab-h">韵脚</div>
+        </div>
+        {view.sections.map((sec) => (
+          <div className="sec" key={sec.id} data-role="section">
+            <SectionHeader index={sec.index} label={sec.label} kind={sec.kind} bars={sec.rows.length} />
+            {sec.rows.map((row) => (
+              <Row key={row.barId} row={row} state={s} sizing={sizing} nowAbs={nowAbs} nowKey={nowKey} selected={selected} rowOn={rowOn(row)} stretch={stretch} />
+            ))}
           </div>
         ))}
-        <div className="lab-h">韵脚</div>
-      </div>
-      {view.sections.map((sec) => (
-        <div className="sec" key={sec.id} data-role="section">
-          <SectionHeader index={sec.index} label={sec.label} kind={sec.kind} bars={sec.rows.length} />
-          {sec.rows.map((row) => (
-            <Row key={row.barId} row={row} state={s} sizing={sizing} nowAbs={nowAbs} nowKey={nowKey} selected={selected} rowOn={rowOn(row)} />
-          ))}
+        {bands.map((b, i) => (
+          <span key={`b${i}`} className="selband" data-role="selection-band" style={{ left: b.l, top: b.t, width: b.w, height: b.h }}></span>
+        ))}
+        {boxes.map((b, i) => (
+          <span key={i} className="selbox" data-role="selection-box" style={{ left: b.l, top: b.t, width: b.w, height: b.h }}></span>
+        ))}
+        <div className="add-row">
+          <button className="btn sm" data-role="add-bar" onClick={() => store.addBar()}>
+            <Icon.plus />
+            小节
+          </button>
+          <AddSection />
         </div>
-      ))}
-      <div className="add-row">
-        <button className="btn sm" data-role="add-bar" onClick={() => store.addBar()}>
-          <Icon.plus />
-          小节
-        </button>
-        <button className="btn sm" data-role="add-section" onClick={() => store.addSection('verse')}>
-          <Icon.plus />
-          段落
-        </button>
       </div>
-    </div>
+      {stretch && (
+        <div className="drag-tip" data-role="drag-tip" style={{ left: Math.max(8, Math.min(stretch.x, window.innerWidth - 8)), top: stretch.y + 18 }}>
+          {tipText}
+        </div>
+      )}
+    </StretchCtx.Provider>
   );
 }

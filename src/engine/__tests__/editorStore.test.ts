@@ -320,15 +320,15 @@ describe('EditorStore：铺 flow（拖音 = 字的长度，空音 = 空白）', 
 });
 
 describe('EditorStore：填字', () => {
-  it('从一个字起依次往后填，填完选中下一个字；空字符串清掉文字', () => {
+  it('一个位置只放一个字：多打的字不会写到别的位置；空字符串清掉文字', () => {
     const { store } = setup();
-    store.startEdit(at(1, 0));
-    expect(store.getState().editing).toBe(at(1, 0));
-    store.commitText(at(1, 0), '早 上好');
-    expect(store.getState().editing).toBeNull();
-    expect(barText(store, 1).startsWith('早上好点')).toBe(true);
-    expect(store.getState().cursor).toBe(at(1, 36));
+    store.commitText(at(1, 0), '早');
+    expect(barText(store, 1).startsWith('早晨三点')).toBe(true);
+    expect(store.getState().cursor).toBe(at(1, 12));
     expect(store.getState().history.undoLabel).toMatch(/填字/);
+    store.commitText(at(1, 0), '早上好');
+    expect(barText(store, 1).startsWith('早晨三点')).toBe(true);
+    expect(store.getState().notice?.text).toMatch(/双击/);
     store.commitText(at(1, 0), '');
     expect(textAt(store, at(1, 0))).toBe('');
     expect(kinds(store)).toEqual(['fill', 'fill']);
@@ -498,14 +498,11 @@ describe('EditorStore：选格子 / 涂色', () => {
     expect(store.getState().notice?.text).toMatch(/先选一种颜色/);
   });
 
-  it('选法：整行 / 整列 / 框选两个角 / 反选', () => {
+  it('选法：整行 / 框选两个角 / 反选', () => {
     const { store } = setup();
     store.setSelMode('row');
     store.clickCell(2, 1);
     expect(store.getState().selection).toEqual([0, 1, 2, 3].map((b) => keyOf(store, 2, b)));
-    store.setSelMode('col');
-    store.clickCell(2, 1);
-    expect(store.getState().selection).toHaveLength(9);
     store.setSelMode('box');
     store.clickCell(1, 0);
     store.clickCell(2, 1);
@@ -784,5 +781,141 @@ describe('EditorStore：小节 / 段落 / 作品库', () => {
     const m = n;
     store.undo();
     expect(n).toBe(m);
+  });
+});
+
+describe('EditorStore v3.1：双击改一拍的字，绝不写进下一拍', () => {
+  /** 第 global 小节第 beat 拍的字：[拍内起点, 长度, 字] */
+  const beatLayout = (store: EditorStore, global: number, beat: number) =>
+    barAt(store.grid, global)!.words.filter((w) => Math.floor(w.tick / 48) === beat).map((w) => [w.tick % 48, w.len, w.text]);
+  const othersOf = (store: EditorStore, global: number, beat: number) =>
+    JSON.stringify(allWords(store.grid).filter((x) => !(x.global === global && Math.floor(x.word.tick / 48) === beat)).map((x) => [x.abs, x.word.len, x.word.text]));
+
+  it('双击进入改字；位置够按原节奏填，不够就平分；别的拍逐字节不变；一次回车一步、可撤销', () => {
+    const { store } = setup();
+    store.editCell(1, 1);
+    expect(store.getState().editing).toEqual({ key: keyOf(store, 1, 1), global: 1, beat: 1 });
+    expect(store.getState().selection).toEqual([keyOf(store, 1, 1)]);
+    const others = othersOf(store, 1, 1);
+    // 「街灯 在」3 个位置打 3 个字：节奏不变
+    expect(store.commitBeatText(1, 1, '灯火亮')).toBe(true);
+    expect(store.getState().editing).toBeNull();
+    expect(beatLayout(store, 1, 1)).toEqual([
+      [0, 12, '灯'],
+      [12, 12, '火'],
+      [36, 12, '亮'],
+    ]);
+    // 打 4 个字：平分成 1/16
+    expect(store.commitBeatText(1, 1, '走 得太慢')).toBe(true);
+    expect(beatLayout(store, 1, 1)).toEqual([
+      [0, 12, '走'],
+      [12, 12, '得'],
+      [24, 12, '太'],
+      [36, 12, '慢'],
+    ]);
+    expect(othersOf(store, 1, 1)).toBe(others);
+    expect(kinds(store)).toEqual(['fill', 'fill']);
+    expect(store.getState().history.undoLabel).toBe('填字 第 2 小节第 2 拍「走得太慢」');
+    store.undo();
+    expect(beatLayout(store, 1, 1).map((x) => x[2]).join('')).toBe('灯火亮');
+  });
+
+  it('位置不够又超过 4 个字：什么都不写、不进历史，提示去第 1 步分细', () => {
+    const { store } = setup();
+    const before = JSON.stringify(allWords(store.grid).map((x) => [x.abs, x.word.len, x.word.text]));
+    expect(store.commitBeatText(1, 0, '一二三四五六')).toBe(false);
+    expect(JSON.stringify(allWords(store.grid).map((x) => [x.abs, x.word.len, x.word.text]))).toBe(before);
+    expect(store.getState().notice?.text).toMatch(/一拍最多 4 个字.*铺 flow/);
+    expect(kinds(store)).toEqual([]);
+    expect(store.beatTextPlan(1, 0, '一二三四五六')).toEqual({ n: 6, slots: 4, how: 'too-many' });
+    expect(store.beatTextPlan(1, 0, '一二')).toEqual({ n: 2, slots: 4, how: 'fill' });
+    expect(store.beatTextPlan(0, 0, '一二三')).toEqual({ n: 3, slots: 0, how: 'split' });
+    expect(store.beatTextPlan(1, 0, '')).toEqual({ n: 0, slots: 4, how: 'clear' });
+  });
+
+  it('空拍里打 1 / 2 / 3 个字：1/4、1/8、三连', () => {
+    const { store } = setup();
+    store.commitBeatText(0, 0, '走');
+    store.commitBeatText(0, 1, '夜色');
+    store.commitBeatText(0, 2, '慢慢走');
+    expect(beatLayout(store, 0, 0)).toEqual([[0, 48, '走']]);
+    expect(beatLayout(store, 0, 1)).toEqual([
+      [0, 24, '夜'],
+      [24, 24, '色'],
+    ]);
+    expect(beatLayout(store, 0, 2).map((x) => x[0])).toEqual([0, 16, 32]);
+    expect(beatLayout(store, 0, 3).map((x) => x[2]).join('')).toBe('走吧');
+  });
+
+  it('这一拍锁着：位置不够时不重排，提示先解锁', () => {
+    const { store } = setup();
+    store.clickCell(1, 1);
+    store.lockCells(true);
+    expect(store.commitBeatText(1, 1, '走得太慢')).toBe(false);
+    expect(store.getState().notice?.text).toMatch(/锁住.*先解锁.*3 个字以内/);
+    expect(beatLayout(store, 1, 1).map((x) => x[2]).join('')).toBe('街灯在');
+    expect(store.beatTextPlan(1, 1, '走得太慢').how).toBe('locked');
+  });
+
+  it('选中字按回车：改它所在的那一拍', () => {
+    const { store } = setup();
+    store.startEdit(at(1, 60));
+    expect(store.getState().editing).toMatchObject({ global: 1, beat: 1 });
+    store.cancelEdit();
+    expect(store.getState().editing).toBeNull();
+  });
+});
+
+describe('EditorStore v3.1：点拍头选整列、加段落、打开在哪一步', () => {
+  it('点拍头：只选这一拍里有东西的格子（跨段落），空格子不选；不改选法；点格子后拍头不再高亮', () => {
+    const { store } = setup();
+    store.addSection('outro'); // 后面加一段空的
+    store.selectColumn(2);
+    const s = store.getState();
+    expect(s.selection).toEqual([1, 2, 3, 4, 5, 6, 7, 8].map((g) => keyOf(store, g, 2)));
+    expect(s.selColumn).toBe(2);
+    expect(s.selMode).toBe('cell');
+    store.clickCell(3, 0);
+    expect(store.getState().selection).toEqual([keyOf(store, 3, 0)]);
+    expect(store.getState().selColumn).toBeNull();
+    store.selectRow(2);
+    expect(store.getState().selMode).toBe('cell');
+    store.clickCell(5, 1);
+    expect(store.getState().selection).toEqual([keyOf(store, 5, 1)]);
+  });
+
+  it('只有拖音的格子也算这一列里有东西；整首这一拍都空时选全部（空作品也能锁整列）', () => {
+    const { store } = setup();
+    store.selectColumn(1);
+    expect(store.getState().selection).toContain(keyOf(store, 6, 1)); // 「门」拖过来
+    store.newProject();
+    store.selectColumn(0);
+    const bars = store.grid.sections.flatMap((x) => x.bars).length;
+    expect(bars).toBeGreaterThan(0);
+    expect(store.getState().selection).toHaveLength(bars);
+    store.lockColumns(true);
+    expect(store.doc.locks.beats).toEqual([0]);
+  });
+
+  it('加段落可以选 Intro / Verse / Hook / Bridge / Outro，同类型自动编号', () => {
+    const { store } = setup();
+    for (const k of ['intro', 'verse', 'hook', 'bridge', 'outro'] as const) store.addSection(k);
+    expect(store.grid.sections.map((x) => x.kind).slice(-5)).toEqual(['intro', 'verse', 'hook', 'bridge', 'outro']);
+    expect(store.grid.sections.map((x) => x.label)).toEqual(['Intro 1', 'Verse 1', 'Hook 1', 'Intro 2', 'Verse 2', 'Hook 2', 'Bridge', 'Outro']);
+  });
+
+  it('打开作品：写过字的在第 2 步；一个字都没写的（包括只铺了位置）在第 1 步', () => {
+    const { store } = setup();
+    expect(store.getState().step).toBe(2);
+    store.newProject();
+    expect(store.getState().step).toBe(1);
+    store.flowClick(0);
+    store.flush();
+    const id = store.getState().projectId;
+    store.setStep(2);
+    store.newProject();
+    store.openProject(id);
+    expect(store.getState().projectId).toBe(id);
+    expect(store.getState().step).toBe(1);
   });
 });

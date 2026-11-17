@@ -394,6 +394,62 @@ export function fillTexts(grid: Grid, fromAbs: number, chars: string[]): { grid:
   return { grid: out, written };
 }
 
+/** 一拍里最多平分成几个字（1/4、1/8、三连、1/16） */
+export const MAX_BEAT_CHARS = 4;
+
+export type BeatTextResult =
+  | { ok: true; grid: Grid; how: 'fill' | 'split'; written: number[] }
+  | { ok: false; reason: 'too-many' | 'locked'; slots: number };
+
+/**
+ * 把一拍（全曲第 globalBar 小节第 beat 拍）的字改成 chars，永远不碰下一拍：
+ * - 这一拍原来字的位置够（N ≤ S）：按原来的节奏依次填，多出来的位置清成空字（位置保留）；
+ * - 不够、而且 N ≤ 4：这一拍平分成 N 份重新排（1/4、1/8、三连、1/16），原来这一拍的字被替换，
+ *   前一拍拖进来的字截到本拍开头，最后一个字结束在本拍末尾；
+ * - 不够、而且 N > 4：什么都不写（too-many）；
+ * - 要改的字锁着（或要重排的这一拍锁着、前一拍拖进来的字锁着）：什么都不写（locked）。
+ * written：写了字的全曲绝对起点（按顺序）。
+ */
+export function setBeatText(grid: Grid, globalBar: number, beat: number, chars: string[], opts: { cellLocked?: boolean; lockedAbs?: ReadonlySet<number> } = {}): BeatTextResult {
+  const bar = barAt(grid, globalBar);
+  if (!bar || beat < 0 || beat >= BEATS_PER_BAR) throw new GridError(`没有第 ${globalBar + 1} 小节第 ${beat + 1} 拍`);
+  const b0 = globalBar * TICKS_PER_BAR;
+  const c0 = b0 + beat * TICKS_PER_BEAT;
+  const words = sortWords(wordsInCell(bar, beat));
+  const locked = (abs: number) => !!opts.cellLocked || !!opts.lockedAbs?.has(abs);
+  const n = chars.length;
+  const s = words.length;
+  if (n <= s) {
+    let out = grid;
+    const written: number[] = [];
+    for (let i = 0; i < s; i++) {
+      const text = i < n ? chars[i] : '';
+      if (words[i].text === text) {
+        if (text) written.push(b0 + words[i].tick);
+        continue;
+      }
+      if (locked(b0 + words[i].tick)) return { ok: false, reason: 'locked', slots: s };
+      out = setWordText(out, words[i].id, text);
+      if (text) written.push(b0 + words[i].tick);
+    }
+    return { ok: true, grid: out, how: 'fill', written };
+  }
+  if (n > MAX_BEAT_CHARS) return { ok: false, reason: 'too-many', slots: s };
+  const into = holdInto(grid, globalBar, beat);
+  if (opts.cellLocked || words.some((w) => locked(b0 + w.tick)) || (into && opts.lockedAbs?.has(into.abs))) return { ok: false, reason: 'locked', slots: s };
+  const unit = TICKS_PER_BEAT / n;
+  let out = carve(removeWords(grid, words.map((w) => w.id)), c0);
+  const fresh = chars.map((text, i) => ({ abs: c0 + i * unit, len: unit, text, id: words[i]?.id }));
+  out = normalize(replaceRange(out, c0, c0 + TICKS_PER_BEAT, fresh));
+  return { ok: true, grid: out, how: 'split', written: fresh.map((w) => w.abs) };
+}
+
+/** 作品里有没有写过字（只铺了位置、没写字不算） */
+export function hasAnyText(grid: Grid): boolean {
+  for (const loc of iterateWords(grid)) if (loc.word.text) return true;
+  return false;
+}
+
 // ---------- 小节 / 段落 ----------
 
 export function insertBars(grid: Grid, section: number, index: number, count = 1): Grid {

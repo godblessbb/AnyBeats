@@ -122,28 +122,28 @@ describe('表格视图（sheetView，夜车）', () => {
     expect(cell(0, 3).words.map((w) => w.text)).toEqual(['走', '吧']);
   });
 
-  it('字比字框长：字框后面画细线（同一格里一段）', () => {
+  it('字比字框长：从字的落点铺一块浅底到字结束（同一格里一段）', () => {
     // 第 3 小节「霓---」：一个字拖满一拍
     const c = cell(2, 0);
     expect(c.content).toBe('words');
     expect(c.words.map((w) => [w.text, w.len, w.box])).toEqual([['霓', 48, 12]]);
-    expect(c.segs).toEqual([
-      expect.objectContaining({ wordId: wordId(2, 0), s: 2 * TICKS_PER_BAR + 12, e: 2 * TICKS_PER_BAR + 48, first: true, last: true, tone: 'ink', hue: null }),
+    expect(c.tints).toEqual([
+      expect.objectContaining({ wordId: wordId(2, 0), s: 2 * TICKS_PER_BAR, e: 2 * TICKS_PER_BAR + 48, head: true, tail: true, tone: 'ink', hue: null }),
     ]);
-    // 三连：字框就是 16 tick，不画细线
+    // 三连：字框就是 16 tick，字没拖长，不铺浅底
     expect(cell(3, 0).mode).toBe('t3');
     expect(cell(3, 0).words.map((w) => w.box)).toEqual([16, 16, 16]);
-    expect(cell(3, 0).segs).toEqual([]);
+    expect(cell(3, 0).tints).toEqual([]);
   });
 
-  it('拖过小节线：第 6 小节第 4 拍的「口」接着画到第 7 小节第 1 拍开头（换行后 first = false）', () => {
+  it('拖过小节线：第 6 小节第 4 拍的「口」接着铺到第 7 小节第 1 拍开头（换行后 head = false）', () => {
     const kou = wordId(5, 156);
-    const here = cell(5, 3).segs.filter((s) => s.wordId === kou);
-    const next = cell(6, 0).segs.filter((s) => s.wordId === kou);
+    const here = cell(5, 3).tints.filter((s) => s.wordId === kou);
+    const next = cell(6, 0).tints.filter((s) => s.wordId === kou);
     const abs = 5 * TICKS_PER_BAR + 156;
-    expect(here).toEqual([expect.objectContaining({ s: abs + 12, e: 6 * TICKS_PER_BAR, first: true, last: false, fromBar: 5, fromBeat: 3 })]);
-    expect(next).toEqual([expect.objectContaining({ s: 6 * TICKS_PER_BAR, e: abs + 60, first: false, last: true, fromBar: 5, fromBeat: 3, fromKey: cell(5, 3).key })]);
-    // 韵脚字拖出来的线带颜色
+    expect(here).toEqual([expect.objectContaining({ s: abs, e: 6 * TICKS_PER_BAR, head: true, tail: false, fromBar: 5, fromBeat: 3 })]);
+    expect(next).toEqual([expect.objectContaining({ s: 6 * TICKS_PER_BAR, e: abs + 60, head: false, tail: true, fromBar: 5, fromBeat: 3, fromKey: cell(5, 3).key })]);
+    // 韵脚字的浅底带颜色
     expect(next[0]).toMatchObject({ tone: 'rp', hue: 340 });
     // 第 7 小节第 1 拍自己也有字（「油」），所以不是只有拖音
     expect(cell(6, 0).content).toBe('words');
@@ -155,7 +155,7 @@ describe('表格视图（sheetView，夜车）', () => {
     expect(c.words).toEqual([]);
     expect(c.rule).toBeNull();
     expect(c.holdFrom).toEqual({ bar: 6, beat: 0, text: '门' });
-    expect(c.segs).toEqual([expect.objectContaining({ wordId: wordId(6, 36), first: true, last: true })]);
+    expect(c.tints).toEqual([expect.objectContaining({ wordId: wordId(6, 36), head: false, tail: true })]);
     expect(cell(6, 0).holdFrom).toBeNull();
   });
 

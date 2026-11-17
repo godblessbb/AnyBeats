@@ -36,6 +36,9 @@
 /* ---------- 2. AnyBeats 语义层 ---------- */
 :root {
   --ab-accent: #C2410C;           /* 朱橙，色相约 20° */
+  --tint-ink: rgba(26, 26, 26, .09);     /* 拖音浅底：字色的淡色（RGB 和 --a-text-primary 一样） */
+  --tint-ink-empty: rgba(26, 26, 26, .06);
+  --accent-wash: rgba(194, 65, 12, .14); /* 强调色的淡色（RGB 和 --ab-accent 一样） */
   --ab-accent-fg: #FFFFFF;
   --ab-accent-soft: #FFF1E8;
   --ab-accent-line: #F3B48F;
@@ -76,6 +79,9 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --ab-accent: #FB8A4C;
+    --tint-ink: rgba(245, 245, 245, .12);
+    --tint-ink-empty: rgba(245, 245, 245, .08);
+    --accent-wash: rgba(251, 138, 76, .16);
     --ab-accent-fg: #1A0D05;
     --ab-accent-soft: rgba(251, 138, 76, .16);
     --ab-accent-line: rgba(251, 138, 76, .5);
@@ -150,10 +156,13 @@ svg { display: block; }
 .ibtn[disabled] { color: var(--ab-text-faint); }
 .hist { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--ab-line-2); border-radius: 10px; flex: none; }
 .hist .ibtn { height: 28px; }
-.steps { display: inline-flex; padding: 2px; border-radius: 10px; background: var(--ab-surface-3); flex: none; }
-.steps button { height: 28px; padding: 0 12px; border: 0; border-radius: 8px; background: transparent; font-size: 13px; color: var(--ab-text-muted); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-.steps button i { font-style: normal; font-size: 11px; width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; border: 1px solid currentColor; }
-.steps button.on { background: var(--ab-surface); color: var(--ab-text); font-weight: 600; box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+/* 步骤：当前步骤用强调色实底（和播放键同色），数字圈反白 */
+.steps { display: inline-flex; gap: 3px; padding: 3px; border-radius: 10px; background: var(--ab-surface-3); border: 1px solid var(--ab-line-2); flex: none; }
+.steps button { height: 30px; padding: 0 13px; border: 0; border-radius: 8px; background: transparent; font-size: 13px; font-weight: 500; color: var(--ab-text); display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.steps button i { font-style: normal; font-size: 11px; font-weight: 700; width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center; border: 1px solid currentColor; }
+.steps button:not(.on):hover { background: var(--ab-surface); }
+.steps button.on { background: var(--ab-accent); color: var(--ab-accent-fg); font-weight: 700; box-shadow: 0 1px 3px rgba(0, 0, 0, .18); }
+.steps button.on i { background: var(--ab-accent-fg); color: var(--ab-accent); border-color: var(--ab-accent-fg); }
 .transport { display: flex; align-items: center; gap: 8px; }
 .play { width: 34px; height: 34px; border-radius: 50%; border: 0; flex: none; background: var(--ab-accent); color: var(--ab-accent-fg); display: grid; place-items: center; }
 .play svg { width: 14px; height: 14px; }
@@ -211,14 +220,17 @@ svg { display: block; }
 .sh-head { position: sticky; top: 44px; z-index: 4; background: var(--head-bg); border: 1px solid var(--grid); border-radius: 8px 8px 0 0; }
 .corner { font-size: 11px; color: var(--ab-text-muted); padding: 6px 8px; line-height: 1.2; border-right: 2px solid var(--bar-line); position: sticky; left: 0; background: var(--head-bg); z-index: 1; }
 .colh { position: relative; border-right: 1px solid var(--grid); height: 42px; }
-.colh .bn { position: absolute; left: 0; right: 0; top: 0; height: 26px; border: 0; background: transparent; font-size: 14px; font-weight: 700; color: var(--ab-text); display: flex; align-items: center; justify-content: center; gap: 4px; }
+/* 拍头：整格一个按钮（点哪里都是选这一拍整列）；下面的 16 分刻度只是标尺 */
+.colh .bn { position: absolute; inset: 0; border: 0; padding: 0; background: transparent; font-size: 14px; font-weight: 700; color: var(--ab-text); display: block; }
+.colh .bn:hover { background: var(--ab-surface-3); }
+.colh .bn .num { position: absolute; left: 0; right: 0; top: 0; height: 26px; display: flex; align-items: center; justify-content: center; gap: 4px; }
 .colh .bn svg { width: 12px; height: 12px; }
-.subs { position: absolute; left: 0; right: 0; bottom: 0; height: 16px; display: flex; }
-.sub { flex: 1; height: 16px; border: 0; padding: 0; background: transparent; position: relative; }
-.sub::before { content: ''; position: absolute; left: 0; bottom: 0; width: 1px; height: 9px; background: var(--ab-text-faint); }
-.sub:first-child::before { height: 14px; width: 2px; background: var(--ab-text-muted); }
-.sub.on { background: var(--ab-accent); }
-.sub.on::before { background: var(--ab-accent-fg); }
+.colh .bn .rul { position: absolute; left: 0; right: 0; bottom: 0; height: 16px; pointer-events: none; }
+.colh .bn .rul i { position: absolute; bottom: 0; width: 1px; height: 9px; background: var(--ab-text-faint); }
+.colh .bn .rul i:first-child { height: 14px; width: 2px; background: var(--ab-text-muted); }
+.colh.on .bn { background: var(--ab-accent-soft); }
+.colh.on .bn .num { color: var(--ab-accent-text); }
+.colh.on::after { content: ''; position: absolute; left: -1px; right: 0; bottom: -1px; height: 2px; background: var(--ab-accent); pointer-events: none; }
 .lab-h { font-size: 11px; color: var(--ab-text-muted); padding: 6px 10px; }
 .sec { border-left: 1px solid var(--grid); border-right: 1px solid var(--grid); }
 .sec-h { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 10px; background: var(--ab-surface-2); border-bottom: 1px solid var(--grid); position: relative; }
@@ -234,11 +246,9 @@ svg { display: block; }
 .cell { position: relative; background: var(--ab-surface); border-right: 1px solid var(--grid); cursor: pointer; }
 .cell.painted { background: hsl(var(--h) var(--tint-s) var(--tint-l)); }
 .cell.locked { background-image: repeating-linear-gradient(135deg, var(--lock-stripe) 0 2px, transparent 2px 7px); }
-.cell.sel-in { box-shadow: inset 0 0 0 2px var(--ab-accent); }
-.cell.anchor { box-shadow: inset 0 0 0 2px var(--ab-accent); }
 .cell.now { box-shadow: inset 0 -3px 0 var(--ab-accent); }
+.cell.editing { z-index: 6; }
 .cell .tk { position: absolute; bottom: 0; width: 1px; height: 6px; background: var(--tick); pointer-events: none; }
-.cell .band { position: absolute; top: 0; bottom: 0; border-left: 1.5px solid var(--ab-accent); border-right: 1.5px solid var(--ab-accent); pointer-events: none; }
 .cell .clock { position: absolute; z-index: 3; left: 3px; top: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--ab-text); color: var(--ab-surface); display: grid; place-items: center; pointer-events: none; }
 .cell .clock svg { width: 10px; height: 10px; }
 .cell.hold-hit { outline: 2px dashed var(--ab-warn-line); outline-offset: -3px; }
@@ -250,35 +260,62 @@ svg { display: block; }
 .trip.half { right: auto; width: calc(50% - 4px); }
 .trip.half.h2 { left: calc(50% + 2px); }
 
-/* 字：字框那一段按 tick 摆（--t 起点、--l 字框长度），字号 --fs 由格宽现算（最小 11px） */
-.slot {
-  position: absolute; top: var(--slot-top); height: var(--slot-h); border-radius: 6px;
+/* 字：没有字框，直接写在落点上（--t 起点、--l 留给字形的宽度，字号 --fs 由格宽现算，最小 11px）。
+ * 韵脚字用它那种颜色写；还没填的字画一条短下划线 */
+.wd {
+  position: absolute; top: var(--slot-top); height: var(--slot-h); z-index: 2; pointer-events: none;
   left: calc(var(--t) / 48 * 100% + 1px); width: calc(var(--l) / 48 * 100% - 2px);
   display: flex; align-items: center; overflow: visible;
 }
-.slot.word { border: 1.5px solid var(--slot-line); background: var(--slot-bg); z-index: 1; justify-content: flex-start; }
-.slot.word.filled { border: 1px solid var(--slot-line-soft); background: transparent; }
-.slot .ch { font-size: var(--fs, var(--ch)); line-height: 1; padding-left: 4px; font-weight: 500; color: var(--ab-text); white-space: nowrap; pointer-events: none; }
-.slot.word.narrow { justify-content: center; }
-.slot.word.narrow .ch { padding-left: 0; }
-.slot.word.dense { border: 0; background: var(--ab-surface-3); border-radius: 4px; justify-content: center; }
-.slot.word.dense .ch { padding-left: 0; }
-.slot.rp, .slot.rp.word.filled { background: hsl(var(--h) var(--chip-s) var(--chip-l)); border-color: hsl(var(--h) 45% 55%); }
-.slot.rp.word.filled { border-color: transparent; }
-.slot .ph { font-family: var(--a-mono); font-size: 12px; padding-left: 4px; color: hsl(var(--h) var(--ink-s) var(--ink-l)); font-weight: 600; white-space: nowrap; pointer-events: none; }
-.slot.word.narrow .ph { padding-left: 0; }
-.slot .slock { position: absolute; right: -3px; top: -5px; width: 12px; height: 12px; border-radius: 3px; background: var(--ab-text); color: var(--ab-surface); display: grid; place-items: center; z-index: 1; pointer-events: none; }
-.slot .slock svg { width: 8px; height: 8px; }
-.slot.miss { outline: 2px dashed var(--ab-warn-line); outline-offset: 1px; }
-.slot.cursor { box-shadow: 0 0 0 2px var(--ab-accent); }
-.slot.now { box-shadow: 0 0 0 2px var(--ab-accent); background: var(--ab-accent-soft); }
+.sheet[data-step="1"] .wd { pointer-events: auto; }
+.wd .ch { font-size: var(--fs, var(--ch)); line-height: 1; padding-left: 4px; font-weight: 500; color: var(--ab-text); white-space: nowrap; pointer-events: none; }
+.wd.narrow .ch { padding-left: 1px; }
+.wd.rp .ch { color: hsl(var(--h) var(--ink-s) var(--ink-l)); font-weight: 700; }
+.wd .ph { font-family: var(--a-mono); font-size: 12px; padding-left: 4px; color: hsl(var(--h) var(--ink-s) var(--ink-l)); font-weight: 600; white-space: nowrap; pointer-events: none; }
+.wd.narrow .ph { padding-left: 0; }
+.wd.blank::after { content: ''; position: absolute; left: 3px; right: 3px; bottom: 5px; height: 2px; border-radius: 1px; background: var(--ab-text-faint); }
+.wd.blank.rp::after { background: hsl(var(--h) var(--sw-s) var(--sw-l)); }
+.wd.blank:has(.ph)::after { display: none; }
+.wd .slock { position: absolute; right: -3px; top: -5px; width: 12px; height: 12px; border-radius: 3px; background: var(--ab-text); color: var(--ab-surface); display: grid; place-items: center; z-index: 1; pointer-events: none; }
+.wd .slock svg { width: 8px; height: 8px; }
+.wd.miss { outline: 2px dashed var(--ab-warn-line); outline-offset: 0; border-radius: 4px; }
+.sheet[data-step="1"] .wd.cur { outline: 2px solid var(--ab-accent); outline-offset: 0; border-radius: 4px; }
+.wd.now { background: var(--ab-accent-soft); border-radius: 4px; }
 
-/* 拖音细线：颜色跟字走（没涂色 = 字色；还没填字 = 字框线色；韵脚字 = 这种颜色），越过格线、折行接着画 */
-.dl { position: absolute; height: 2px; border-radius: 1px; z-index: 2; pointer-events: none; top: calc(var(--slot-top) + var(--slot-h) / 2 - 1px); background: var(--ab-text); }
-.dl.empty { background: var(--slot-line); }
-.dl.rp { background: hsl(var(--h) var(--sw-s) var(--sw-l)); height: 3px; top: calc(var(--slot-top) + var(--slot-h) / 2 - 1.5px); }
-.dl.end::after { content: ''; position: absolute; right: -1px; top: -3px; width: 2px; height: 8px; border-radius: 1px; background: inherit; }
-.dl.rp.end::after { top: -2.5px; }
+/* 拖音 = 字的长度：比字框长的字，从落点铺一块同色浅底到字结束；越过格线、折行接着铺（没有细线） */
+.tint { position: absolute; top: var(--slot-top); height: var(--slot-h); border-radius: 5px; z-index: 1; pointer-events: none; background: var(--tint-ink); }
+.tint.cont { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+.tint.more { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.tint.rp { background: hsl(var(--h) var(--chip-s) var(--chip-l)); }
+.tint.empty { background: var(--tint-ink-empty); }
+.sheet[data-step="1"] .tint.cur { box-shadow: inset 0 0 0 1.5px var(--ab-accent); }
+.tint.preview { z-index: 3; background: var(--accent-wash); box-shadow: inset 0 0 0 1.5px var(--ab-accent-line); }
+/* 改长度的把手：字（或浅底）的右边缘。指针停在格子上 / 格子选中 / 第 1 步选中的字才出现 */
+/* 把手：透明的 10px 宽热区，中间一条 4px 的强调色竖条；指针停在格子上（触屏上：只选了这一格）/ 第 1 步选中的字才看得见 */
+.grip { position: absolute; right: -5px; top: 2px; bottom: 2px; width: 10px; cursor: ew-resize; z-index: 4; touch-action: none; pointer-events: auto; opacity: 0; }
+.grip::after { content: ''; position: absolute; left: 3px; top: 0; bottom: 0; width: 4px; border-radius: 2px; background: var(--ab-accent); box-shadow: 0 0 0 1.5px var(--ab-surface); }
+.grip:hover::after { left: 2px; width: 6px; }
+@media (hover: hover) { .cell:hover .grip { opacity: .85; } .grip:hover { opacity: 1; } }
+@media (hover: none) { .cell.solo .grip { opacity: 1; } }
+.sheet[data-step="1"] .wd.cur .grip, .sheet[data-step="1"] .tint.cur .grip { opacity: 1; }
+.sheet.stretching .grip { opacity: 0; }
+.sheet.stretching, .sheet.stretching * { user-select: none; cursor: ew-resize; }
+.drag-tip { position: fixed; z-index: 40; transform: translateX(-50%); font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 6px; background: var(--ab-text); color: var(--ab-surface); white-space: nowrap; pointer-events: none; }
+
+/* 选中：一整块一个框，画在格子上面；夹在中间的段落标题同一列垫浅色，不断开 */
+.selbox { position: absolute; z-index: 3; border: 2px solid var(--ab-accent); border-radius: 6px; box-shadow: 0 0 0 3px var(--ab-accent-soft); pointer-events: none; }
+.selband { position: absolute; z-index: 2; background: var(--accent-wash); pointer-events: none; }
+
+/* 双击改字：整格变成一个输入框，下面实时说明回车后怎么排 */
+.cell-edit { position: absolute; inset: 3px 2px; z-index: 7; cursor: default; }
+.cell-input { width: 100%; height: 100%; border: 2px solid var(--ab-accent); border-radius: 6px; background: var(--ab-surface); color: var(--ab-text); font-size: max(14px, var(--ch)); padding: 0 6px; outline: none; box-shadow: 0 4px 14px rgba(0, 0, 0, .14); }
+.edit-tip { position: absolute; z-index: 8; left: -2px; top: calc(100% + 6px); width: 300px; background: var(--ab-surface); border: 1px solid var(--ab-line-3); border-radius: 10px; box-shadow: 0 10px 28px rgba(0, 0, 0, .16); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--ab-text); line-height: 1.5; }
+.edit-tip.bad { border-color: var(--ab-warn-line); }
+.edit-tip b { font-size: 13px; font-weight: 600; }
+.edit-tip .k { color: var(--ab-text-muted); }
+.edit-tip .k b { font-size: 12px; color: var(--ab-text); }
+.edit-tip .warn { color: var(--ab-warn-text); }
+.btn.on { border-color: var(--ab-accent); color: var(--ab-accent-text); background: var(--ab-accent-soft); }
 
 /* 只有拖音的格子：点了出提示，不能涂色 */
 .hold-tip {
@@ -340,8 +377,7 @@ svg { display: block; }
 .mini .mrow + .mrow { border-top: 1px solid var(--grid); }
 .mini .mc { position: relative; height: 24px; border-right: 1px solid var(--grid); }
 .mini .mc:last-child { border-right: 0; }
-.mini .slot.word { border-radius: 4px; }
-.mini .slot .ch { padding-left: 2px; }
+.mini .wd .ch { padding-left: 2px; }
 .mini .slot.word.handle { box-shadow: 0 0 0 2px var(--ab-accent); }
 .mini .slot.word.handle::after { content: ''; position: absolute; right: -4px; top: 3px; bottom: 3px; width: 5px; border-radius: 3px; background: var(--ab-accent); }
 .stretch { display: grid; grid-template-columns: 118px 1fr; gap: 10px; align-items: center; }
@@ -423,7 +459,7 @@ svg { display: block; }
   .m-beat > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
   .m-beat b { color: var(--ab-text); font-weight: 600; }
   .ruler .bm.nx { color: transparent; }
-  .slot .ch { padding-left: 2px; }
+  .wd .ch { padding-left: 2px; }
   .side { display: none; }
   .work { padding: 0 8px 80px; }
   .tools { overflow-x: auto; padding: 8px 0 6px; scrollbar-width: none; }
@@ -435,7 +471,9 @@ svg { display: block; }
   .lab, .lab-h { display: none; }
   .cell .clock { width: 13px; height: 13px; top: 0; left: 1px; }
   .cell .clock svg { width: 8px; height: 8px; }
-  .slot .ph { font-size: 10px; padding-left: 2px; }
+  .wd .ph { font-size: 10px; padding-left: 2px; }
+  .cell-input { padding: 0 3px; }
+  .edit-tip { position: fixed; left: 8px; right: 8px; top: auto; bottom: 64px; width: auto; }
   .hold-tip { width: 220px; left: -60px; }
   .hold-tip::before { left: 92px; }
   .hist-pop { left: 8px; right: 8px; width: auto; top: 98px; }
@@ -468,12 +506,5 @@ svg { display: block; }
 }
 
 /* ---------- 12. 编辑、拉长、横向滑动 ---------- */
-.slot-input {
-  position: absolute; left: -1px; top: -1px; z-index: 6; min-width: calc(100% + 2px); width: 3.2em; height: calc(100% + 2px);
-  border: 2px solid var(--ab-accent); border-radius: 6px; background: var(--ab-surface); color: var(--ab-text);
-  font-size: max(14px, var(--fs, var(--ch))); padding: 0 3px; outline: none;
-}
-.slot .grip { position: absolute; right: -5px; top: 3px; bottom: 3px; width: 7px; border-radius: 3px; background: var(--ab-accent); cursor: ew-resize; z-index: 4; touch-action: none; }
-.dl.preview { background: var(--ab-accent); opacity: .6; }
 /* 字太密（例如 1/32）手机上格子不够宽时：整张表左右滑，行头和列头跟着走 */
 .sheet.scroll .sec-h b, .sheet.scroll .sec-h span { position: sticky; left: 10px; }

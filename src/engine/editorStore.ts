@@ -19,7 +19,6 @@ import {
   cellKey,
   checkChanges,
   clearBar,
-  columnKeys,
   copyFlowToNextBar,
   createAutosave,
   createSection,
@@ -31,14 +30,16 @@ import {
   duplicateSection,
   erasePaint,
   extendWord,
-  fillTexts,
   findWord,
   History,
+  hasAnyText,
   holdInto,
   insertBars,
   insertSection,
   isCellLocked,
   locateTick,
+  lockedWordTicks,
+  MAX_BEAT_CHARS,
   mismatches,
   paintCells,
   parseCellKey,
@@ -56,6 +57,7 @@ import {
   serializeProject,
   setBarLocks,
   setBeatLocks,
+  setBeatText,
   setCellLocks,
   setRhymeLock,
   setWordText,
@@ -99,7 +101,8 @@ export type SaveStatus =
   | { kind: 'error'; message: string };
 
 export type Step = 1 | 2;
-export type SelMode = 'cell' | 'row' | 'col' | 'box';
+/** 点格子时的选法（整列只能点拍头选，不再是一种选法） */
+export type SelMode = 'cell' | 'row' | 'box';
 
 export interface HistoryView {
   canUndo: boolean;
@@ -134,14 +137,14 @@ export interface EditorState {
   invert: boolean;
   /** 选中的格子（CellKey） */
   selection: string[];
+  /** 点拍头选中的是第几拍整列（拍头高亮用）；选了别的就清掉 */
+  selColumn: number | null;
   /** 框选的第一个角 */
   anchor: { bar: number; beat: number } | null;
   /** 选中的字（全曲绝对起点） */
   cursor: number | null;
-  /** 正在打字的字（全曲绝对起点） */
-  editing: number | null;
-  /** 列头点了某拍的某个 16 分：整首这一列框出来 */
-  band: { beat: number; sub: number } | null;
+  /** 正在改字的那一拍（双击格子 / 选中字按回车） */
+  editing: { key: string; global: number; beat: number } | null;
   history: HistoryView;
   save: SaveStatus;
   notice: { text: string; at: number } | null;
@@ -264,16 +267,17 @@ export class EditorStore {
       name: p.name,
       createdAt: p.createdAt,
       doc: this.history.state,
-      step: 2,
+      // 一个字都没写的作品打开在第 1 步（铺 flow），写过字的打开在第 2 步
+      step: hasAnyText(p.grid) ? 2 : 1,
       precision: '1/16',
       activeRule: p.rules[0]?.id ?? null,
       selMode: 'cell',
       invert: false,
       selection: [],
+      selColumn: null,
       anchor: null,
       cursor: null,
       editing: null,
-      band: null,
       history: this.historyView(),
       save: this.storage.persistent ? { kind: 'saved', at: p.updatedAt || null } : { kind: 'memory', reason: this.storage.reason ?? '拿不到本机存储' },
       notice: null,
@@ -379,16 +383,11 @@ export class EditorStore {
   // ---------- 步骤 / 精度 ----------
 
   setStep(step: Step): void {
-    if (step !== this.state.step) this.set({ step, editing: null, holdTip: null, selection: [], anchor: null });
+    if (step !== this.state.step) this.set({ step, editing: null, holdTip: null, selection: [], selColumn: null, anchor: null });
   }
 
   setPrecision(precision: Precision): void {
     this.set({ precision });
-  }
-
-  setBand(band: { beat: number; sub: number } | null): void {
-    const cur = this.state.band;
-    this.set({ band: band && cur && cur.beat === band.beat && cur.sub === band.sub ? null : band });
   }
 
   // ---------- 铺 flow ----------
@@ -480,34 +479,80 @@ export class EditorStore {
     this.set({ cursor: abs, holdTip: null });
   }
 
+  /** 双击格子：改这一拍的字（只有拖音 / 空着的格子也能改：打了字就按字数平分这一拍） */
+  editCell(global: number, beat: number): void {
+    const bar = barAt(this.grid, global);
+    if (!bar || beat < 0 || beat > 3) return;
+    const key = cellKey(bar.id, beat);
+    this.set({ editing: { key, global, beat }, selection: [key], selColumn: null, anchor: null, holdTip: null });
+  }
+
+  /** 选中的字按回车：改它所在那一拍 */
   startEdit(abs: number): void {
-    if (!wordStartingAt(this.grid, abs)) return;
-    this.set({ cursor: abs, editing: abs, holdTip: null });
+    const w = wordStartingAt(this.grid, abs);
+    if (!w) return;
+    this.set({ cursor: abs });
+    this.editCell(w.global, Math.floor(w.word.tick / TICKS_PER_BEAT));
   }
 
   cancelEdit(): void {
     if (this.state.editing !== null) this.set({ editing: null });
   }
 
-  /** 从 abs 这个字起往后依次填字（一个字一个位置）；空字符串 = 清掉这个字的文字。填完选中下一个字 */
+  /** 一拍改字的规则说明（输入框下面实时显示、回车后被拒时提示） */
+  beatTextPlan(global: number, beat: number, raw: string): { n: number; slots: number; how: 'fill' | 'split' | 'clear' | 'too-many' | 'locked' } {
+    const chars = Array.from(raw.replace(/\s+/g, ''));
+    const bar = barAt(this.grid, global);
+    const slots = bar ? bar.words.filter((w) => Math.floor(w.tick / TICKS_PER_BEAT) === beat).length : 0;
+    if (!bar) return { n: chars.length, slots, how: 'too-many' };
+    const r = setBeatText(this.grid, global, beat, chars, this.beatLocks(bar.id, beat));
+    if (!r.ok) return { n: chars.length, slots, how: r.reason };
+    return { n: chars.length, slots, how: chars.length ? r.how : 'clear' };
+  }
+
+  private beatLocks(barId: string, beat: number) {
+    return { cellLocked: isCellLocked(this.doc.locks, barId, beat), lockedAbs: lockedWordTicks(this.grid, this.doc) };
+  }
+
+  /**
+   * 回车：把这一拍的字改成 raw（core/grid 的 setBeatText，永远不碰下一拍），一次算历史里一步。
+   * 打了几个字就排几个字；位置不够又超过 4 个字、或者要重排的地方锁着，什么都不写、出提示。返回是否写了。
+   */
+  commitBeatText(global: number, beat: number, raw: string): boolean {
+    const chars = Array.from(raw.replace(/\s+/g, ''));
+    this.set({ editing: null });
+    const bar = barAt(this.grid, global);
+    if (!bar) return false;
+    const where = cellName(global, beat);
+    const r = setBeatText(this.grid, global, beat, chars, this.beatLocks(bar.id, beat));
+    if (!r.ok) {
+      if (r.reason === 'too-many')
+        this.notify(`一拍最多 ${MAX_BEAT_CHARS} 个字（这次打了 ${chars.length} 个），什么都没写。要更密的节奏，先到「① 铺 flow」把${where}分细`);
+      else this.notify(`${where}有锁住的字，不能重新分；先解锁，或者只打 ${r.slots} 个字以内`);
+      return false;
+    }
+    const label = chars.length ? `填字 ${where}「${chars.join('')}」` : `填字 清空${where}的字`;
+    const ok = this.exec(label, 'fill', (d) => ({ ...d, grid: r.grid }));
+    if (ok && r.written.length) this.set({ cursor: r.written[r.written.length - 1] });
+    return ok;
+  }
+
+  /** 改一个字的文字（选中字按 ⌫ 清掉、测试里直接填一个字用）：一个位置只放一个字，不会写到别的位置 */
   commitText(abs: number, raw: string): void {
     const chars = Array.from(raw.replace(/\s+/g, ''));
     const w = wordStartingAt(this.grid, abs);
     this.set({ editing: null });
     if (!w) return;
-    if (!chars.length) {
-      if (w.word.text) this.exec(`填字 删掉第 ${w.global + 1} 小节「${w.word.text}」`, 'fill', (d) => ({ ...d, grid: setWordText(d.grid, w.word.id, '') }));
+    if (chars.length > 1) {
+      this.notify('一个位置只放一个字；要改一整拍，双击那一格');
       return;
     }
-    let written: number[] = [];
-    const ok = this.exec(`填字 第 ${w.global + 1} 小节「${chars.join('')}」`, 'fill', (d) => {
-      const r = fillTexts(d.grid, abs, chars);
-      written = r.written.map((x) => x.abs);
-      return { ...d, grid: r.grid };
-    });
-    if (ok && written.length) {
-      const next = this.wordStarts().find((t) => t > written[written.length - 1]);
-      this.set({ cursor: next ?? written[written.length - 1] });
+    const text = chars[0] ?? '';
+    if (text === w.word.text) return;
+    const label = text ? `填字 第 ${w.global + 1} 小节「${text}」` : `填字 删掉第 ${w.global + 1} 小节「${w.word.text}」`;
+    if (this.exec(label, 'fill', (d) => ({ ...d, grid: setWordText(d.grid, w.word.id, text) })) && text) {
+      const next = this.wordStarts().find((t) => t > abs);
+      this.set({ cursor: next ?? abs });
     }
   }
 
@@ -543,7 +588,7 @@ export class EditorStore {
   }
 
   clearSelection(): void {
-    this.set({ selection: [], anchor: null, holdTip: null, cursor: null, editing: null });
+    this.set({ selection: [], selColumn: null, anchor: null, holdTip: null, cursor: null, editing: null });
   }
 
   private holdTipFor(global: number, beat: number): EditorState['holdTip'] {
@@ -560,14 +605,13 @@ export class EditorStore {
     const key = cellKey(bar.id, beat);
     const s = this.state;
     if (cellContent(this.grid, global, beat) === 'hold-only' && (s.selMode === 'cell' || s.invert)) {
-      this.set({ holdTip: this.holdTipFor(global, beat), selection: s.invert ? s.selection : [] });
+      this.set({ holdTip: this.holdTipFor(global, beat), selection: s.invert ? s.selection : [], selColumn: null });
       return;
     }
     let selection: string[];
     let anchor = s.anchor;
     if (s.invert && s.selection.length) selection = toggleKeys(s.selection, [key]);
     else if (s.selMode === 'row') selection = rowKeys(this.grid, global);
-    else if (s.selMode === 'col') selection = columnKeys(this.grid, beat);
     else if (s.selMode === 'box') {
       if (anchor) {
         selection = boxKeys(this.grid, anchor, { bar: global, beat });
@@ -577,19 +621,27 @@ export class EditorStore {
         anchor = { bar: global, beat };
       }
     } else selection = [key];
-    this.set({ selection, anchor, holdTip: null });
+    this.set({ selection, selColumn: null, anchor, holdTip: null });
   }
 
+  /** 点小节号：选中整行（不改「选格子」的选法，之后点格子照旧按原来的选法） */
   selectRow(global: number): void {
-    this.set({ selection: rowKeys(this.grid, global), anchor: null, holdTip: null, selMode: 'row' });
+    this.set({ selection: rowKeys(this.grid, global), selColumn: null, anchor: null, holdTip: null });
   }
 
+  /**
+   * 点拍头：选中整首这一拍里有东西的格子（有字，或有前面拖过来的音）；完全空的格子不选。
+   * 整首这一拍都还空着时才选全部（好让空作品也能锁整列）。不改「选格子」的选法。
+   */
   selectColumn(beat: number): void {
-    this.set({ selection: columnKeys(this.grid, beat), anchor: null, holdTip: null, selMode: 'col' });
+    const bars = allBars(this.grid);
+    const filled = bars.filter((b) => cellContent(this.grid, b.global, beat) !== 'empty');
+    const selection = (filled.length ? filled : bars).map((b) => cellKey(b.data.id, beat));
+    this.set({ selection, selColumn: beat, anchor: null, holdTip: null });
   }
 
   selectBox(a: { bar: number; beat: number }, b: { bar: number; beat: number }): void {
-    this.set({ selection: boxKeys(this.grid, a, b), anchor: null, holdTip: null, selMode: 'box' });
+    this.set({ selection: boxKeys(this.grid, a, b), selColumn: null, anchor: null, holdTip: null, selMode: 'box' });
   }
 
   setActiveRule(id: string | null): void {

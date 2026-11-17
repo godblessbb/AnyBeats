@@ -86,8 +86,10 @@ function useShortcuts(closeAll: () => void) {
       } else if (s.step === 1 && (k === 'Backspace' || k === 'Delete')) {
         store.deleteCursorWord();
         done();
-      } else if (s.step === 2 && k === 'Enter' && s.cursor !== null) {
-        store.startEdit(s.cursor);
+      } else if (s.step === 2 && k === 'Enter' && (s.selection.length === 1 || s.cursor !== null)) {
+        // 回车 = 改选中那一格（或选中的字所在那一拍）的字，和双击一样
+        const c = store.cursorCell();
+        if (c) store.editCell(c.global, c.beat);
         done();
       } else if (s.step === 2 && (k === 'Backspace' || k === 'Delete') && s.cursor !== null) {
         store.commitText(s.cursor, '');
@@ -108,7 +110,7 @@ function Tools({ lockOpen, onToggleLock }: { lockOpen: boolean; onToggleLock: ()
         <span className="lbl">精度</span>
         <PrecisionChips />
         <span className="status desk-only">
-          <b>点格子放字</b> · 拖字框右边缘或按 - 拉长 · 删掉留下的空白就是空音
+          <b>点格子放字</b> · 拖字后面浅底的右边或按 - 改长度 · 删掉留下的空白就是空音
         </span>
       </div>
     );

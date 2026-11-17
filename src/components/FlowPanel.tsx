@@ -18,18 +18,18 @@ export function PrecisionChips() {
   );
 }
 
-/** 图例：一个字框 + 后面的细线（拖音 = 字的长度） */
+/** 图例：字写在落点上；拖长了的字后面铺一块同色浅底到它结束（拖音 = 字的长度） */
 function Sample({ drag, label }: { drag: boolean; label: string }) {
   return (
     <div className="mini" style={{ width: 118 }}>
       <div className="mrow" style={{ '--n': 1 } as Css}>
         <div className="mc">
-          <span className="slot word filled" data-kind="word" style={{ '--t': 0, '--l': 12 } as Css}>
+          {drag && <span className="tint ink" style={{ left: '1px', right: '2px' }}></span>}
+          <span className="wd" data-kind="word" style={{ '--t': 0, '--l': 12 } as Css}>
             <span className="ch">{label}</span>
           </span>
-          {drag && <span className="dl ink end" style={{ left: 'calc(25% - 1px)', right: '2px' }}></span>}
           {!drag && (
-            <span className="slot word filled" data-kind="word" style={{ '--t': 24, '--l': 12 } as Css}>
+            <span className="wd" data-kind="word" style={{ '--t': 24, '--l': 12 } as Css}>
               <span className="ch">去</span>
             </span>
           )}
@@ -56,7 +56,7 @@ export function FlowPanel() {
         <div className="stretch">
           <Sample drag label="字" />
           <p className="note">
-            <b>拖音 = 字的长度</b>：字框后面一条同色细线，画到字结束；可以拖过格线、拖到下一行开头。
+            <b>拖音 = 字的长度</b>：字靠左写在落点上，后面一块同色浅底一直铺到它唱完；可以拖过格线、拖到下一行开头。
           </p>
         </div>
         <div className="stretch">
@@ -78,7 +78,7 @@ export function FlowPanel() {
           <b>怎么拉长</b>
         </div>
         <p className="note">
-          拖选中字框的<b>右边缘</b>往右拉；或者选中按 <span className="kbd">-</span>，每按一次多拖一个精度单位（现在 {label} = {unit} tick），按 <span className="kbd">=</span> 缩回一个单位。
+          拖字（或它后面浅底）的<b>右边缘</b>：往右拉长、往左缩短，吸附到这里的精度（第 2 步指针停在格子上也能拖）；或者选中按 <span className="kbd">-</span>，每按一次多拖一个精度单位（现在 {label} = {unit} tick），按 <span className="kbd">=</span> 缩回一个单位。
           按 <span className="kbd">⌫</span> 删掉这个字，留下的就是空音。拉长不会改字，也不会挪后面的字。
         </p>
       </div>

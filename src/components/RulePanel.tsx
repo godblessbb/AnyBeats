@@ -38,7 +38,6 @@ export function Swatches() {
 const SEL_MODES: [SelMode, string][] = [
   ['cell', '单格'],
   ['row', '整行'],
-  ['col', '整列'],
   ['box', '框选'],
 ];
 
@@ -215,7 +214,7 @@ export function RulePanel({ lockOpen = false, onCloseLock = () => {} }: { lockOp
               {s.selection.length === 1 ? `（${name(s.selection[0])}）` : ''}。只有拖音、还没铺字的格子涂不上，<b>一格只能一种颜色</b>。
             </>
           ) : (
-            '点格子选中；整行点行头，整列点列头，框选点两个角。'
+            '单击格子选中、双击改这一拍的字；整行点小节号，整列点拍头，框选点两个角。'
           )}
         </p>
         <div className="row-btns">

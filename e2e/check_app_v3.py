@@ -29,6 +29,17 @@
   10 铺 flow：放一个字、按 - 多拖一个精度单位、拖右边缘拉过格线 → 字的长度变、细线跟着画
   11 存量作品迁移：本机存着 v2 作品时打开 → 迁成 v3（英文段落名、延音变成字的长度），原文留在备份键
 任何一项不满足，退出码 1。只用标准库 + playwright（sync API）。
+
+v3.1 调整（ct_602f941f：用户要求格子里去掉一个个字框、拖音改成同色浅底、不再画细线、双击一格改这一拍的字）：
+  - 字的选择器 data-role="slot" → "word"，拖音 data-role="drag-line" → "hold-tint"，改字的输入框 word-input → cell-editor
+    （单击字框改一个字 → 双击格子改这一拍：edit_word 把这一拍现在的字换掉第 which 个再整拍回车），拉长把手 stretch-handle → hold-grip。
+    这些只是换了元素名 / 操作方式，断言的意思不变。
+  - 删掉的断言（都绑在已经删掉的字框上，没有字框就无从量起）：
+      1. 「字框右边 = 格左 + (tick + 框长)/48 × 格宽 − 1」——字框没了；字的左边按 tick 摆照样查。
+      2. 「字挤出字框」「字框出了格子」——字框没了；改查字形不出格子。
+      3. 「细线从字框右边开始」——细线没了，拖音浅底从字的落点开始，改查「浅底从字的落点开始」。
+    其余细线断言（经过的格子、跨格接上、折行接到下一行开头、画到字结束、颜色跟字走）原样换成查浅底。
+  - check_app_v3 从来没用过「整列」选法按钮、拍头下面的 16 分小格，没有要删的断言。
 """
 
 import json
@@ -152,7 +163,7 @@ PROBE_JS = r"""
   out.sections = [...document.querySelectorAll('[data-role="section-label"]')].filter(rendered).map(text);
   const dr = document.querySelector('[data-role="rhyme-drawer"]');
   if (dr && rendered(dr)) out.drawer = { height: R(dr).height, bottom: R(dr).bottom };
-  out.nonWord = [...document.querySelectorAll('[data-role="lyrics-sheet"] [data-role="slot"]')].filter(s => s.dataset.kind !== 'word').length;
+  out.nonWord = [...document.querySelectorAll('[data-role="lyrics-sheet"] [data-role="word"]')].filter(s => s.dataset.kind !== 'word').length;
 
   // ---- 表格 ----
   const sheet = document.querySelector('[data-role="lyrics-sheet"]');
@@ -171,13 +182,12 @@ PROBE_JS = r"""
   for (const h of sheet.querySelectorAll('[data-role="row-head"]')) if (!/^\d{2}$/.test(text(h))) T.rowHeadBad.push(text(h));
   for (const c of vis) {
     const g = geo(c), tag = '第 ' + c.dataset.bar + ' 小节第 ' + (+c.dataset.beat + 1) + ' 拍';
-    const slots = [...c.querySelectorAll('[data-role="slot"]')].filter(rendered);
+    const slots = [...c.querySelectorAll('[data-role="word"]')].filter(rendered);
     for (const s of slots) {
-      const r = R(s), t = +s.dataset.tick, box = +s.dataset.box;
-      if (r.left < g.r.left - 0.5 || r.right > g.r.right + 0.5 || r.top < g.r.top - 0.5 || r.bottom > g.r.bottom + 0.5) T.overflow.push(tag + ' tick ' + t + '：字框出了格子');
-      const wantL = g.left + g.w * t / 48 + 1, wantR = g.left + g.w * (t + box) / 48 - 1;
+      const r = R(s), t = +s.dataset.tick;
+      // v3.1：没有字框了，字框右边的断言删掉；字的左边照样按 tick 摆
+      const wantL = g.left + g.w * t / 48 + 1;
       if (Math.abs(r.left - wantL) > 1.5) T.place.push(tag + ' tick ' + t + '：左边偏 ' + round(r.left - wantL) + 'px');
-      if (Math.abs(r.right - wantR) > 1.5) T.place.push(tag + ' tick ' + t + '：右边偏 ' + round(r.right - wantR) + 'px');
       const ch = s.querySelector('.ch');
       if (ch && text(ch)) {
         T.glyphs++;
@@ -185,8 +195,9 @@ PROBE_JS = r"""
         T.minFont = Math.min(T.minFont, fs);
         if (fs < args.minFont - 0.01) T.small.push(tag + '「' + text(ch) + '」字号 ' + fs + 'px');
         const gy = (gr.top + gr.bottom) / 2;   // Range 量到的是行框；CJK 字形高 = 字号
-        if (gr.left < r.left - 0.5 || gr.right > r.right + 0.5 || gy - fs / 2 < r.top - 0.5 || gy + fs / 2 > r.bottom + 0.5)
-          T.overflow.push(tag + '「' + text(ch) + '」字挤出字框（字 ' + round(gr.width) + 'px，框 ' + round(r.width) + 'px）');
+        // v3.1：「字挤出字框」改成字形不出格子
+        if (gr.left < g.r.left - 0.5 || gr.right > g.r.right + 0.5 || gy - fs / 2 < g.r.top - 0.5 || gy + fs / 2 > g.r.bottom + 0.5)
+          T.overflow.push(tag + '「' + text(ch) + '」字形出了格子（字 ' + round(gr.width) + 'px）');
       }
     }
     const marks = [...c.querySelectorAll('[data-role="triplet-mark"]')].filter(m => rendered(m) && text(m) === '3').length;
@@ -194,46 +205,49 @@ PROBE_JS = r"""
     if (ticks.some(t => t === 16 || t === 32 || t === 8 || t === 40)) T.trip.push({ tag, marks, t6: ticks.some(t => t === 8 || t === 40) });
     if (c.dataset.content === 'hold-only') { T.holdOnly.push(c.dataset.bar + ':' + c.dataset.beat); if (chroma(c)) T.holdPainted.push(tag); }
   }
-  // 字的长度细线：按字逐个查（只查画出来的行）
+  // 字的长度（v3.1：同色浅底，原来是细线）：按字逐个查（只查画出来的行）
   const rowsOrder = [...sheet.querySelectorAll('[data-role="row"]')].map(r => r.dataset.bar);
   const segsOf = {};
-  for (const l of sheet.querySelectorAll('[data-role="drag-line"]')) (segsOf[l.dataset.word] = segsOf[l.dataset.word] || []).push(l);
-  for (const s of sheet.querySelectorAll('[data-role="slot"]')) {
+  for (const l of sheet.querySelectorAll('[data-role="hold-tint"]')) (segsOf[l.dataset.word] = segsOf[l.dataset.word] || []).push(l);
+  for (const s of sheet.querySelectorAll('[data-role="word"]')) {
     const c = s.closest('[data-role="cell"]'), bar = c.dataset.bar, beat = +c.dataset.beat, t = +s.dataset.tick;
     const len = +s.dataset.len, box = +s.dataset.box, abs = +s.dataset.abs, tag = '第 ' + bar + ' 小节第 ' + (beat + 1) + ' 拍 tick ' + t;
     const id = [...Object.keys(segsOf)].find(k => segsOf[k].some(l => l.dataset.from === bar + ':' + beat + ':' + t));
     const segs = (id ? segsOf[id] : []).map(l => ({ l, c: l.closest('[data-role="cell"]') }));
-    if (box >= len) { if (segs.length) T.line.push(tag + '：没拖却画了细线'); continue; }
-    if (!segs.length) { T.line.push(tag + '：字拖了 ' + (len - box) + ' tick，却没有细线'); continue; }
+    if (box >= len) { if (segs.length) T.line.push(tag + '：没拖却铺了浅底'); continue; }
+    if (!segs.length) { T.line.push(tag + '：字拖了 ' + (len - box) + ' tick，却没有浅底'); continue; }
     const cellAbs = (x) => (rowsOrder.indexOf(x.c.dataset.bar)) * 192 + (+x.c.dataset.beat) * 48;
     segs.sort((a, b) => cellAbs(a) - cellAbs(b));
     const want = [];
-    for (let a = Math.floor((abs + box) / 48) * 48; a < abs + len; a += 48) want.push(a);
-    if (want.join() !== segs.map(cellAbs).join()) { T.line.push(tag + '：细线经过的格子不对'); continue; }
+    for (let a = Math.floor(abs / 48) * 48; a < abs + len; a += 48) want.push(a);
+    if (want.join() !== segs.map(cellAbs).join()) { T.line.push(tag + '：浅底经过的格子不对'); continue; }
     if (len >= 48 - (t % 48) + 0 && segs.length === 1 && segs[0].c === c) T.fullBeat++;
     if (segs.some(x => x.c !== c && x.c.dataset.bar === bar)) T.crossCell.push(tag);
     if (segs.some(x => x.c.dataset.bar !== bar)) T.wrap.push(tag);
     if (!segs.every(x => shown(x.l) || rendered(x.l)) || !shown(s)) continue;
+    // v3.1：「细线从字框右边开始」删掉（没有字框了），改成浅底从字的落点开始
     const first = R(segs[0].l), sr = R(s);
-    if (Math.abs(first.left - sr.right) > 3) T.line.push(tag + '：细线没从字框右边开始（差 ' + round(first.left - sr.right) + 'px）');
+    if (Math.abs(first.left - sr.left) > 3) T.line.push(tag + '：浅底没从字的落点开始（差 ' + round(first.left - sr.left) + 'px）');
     const last = segs[segs.length - 1], lg = geo(last.c), endX = lg.left + lg.w * ((abs + len - cellAbs(last)) / 48);
-    if (Math.abs(R(last.l).right - endX) > 4) T.line.push(tag + '：细线没画到字结束的地方（差 ' + round(R(last.l).right - endX) + 'px）');
+    if (Math.abs(R(last.l).right - endX) > 4) T.line.push(tag + '：浅底没铺到字结束的地方（差 ' + round(R(last.l).right - endX) + 'px）');
     for (let i = 1; i < segs.length; i++) {
       const p = segs[i - 1], q = segs[i], pr = R(p.l), qr = R(q.l);
       if (p.c.dataset.bar === q.c.dataset.bar) {
-        if (qr.left - pr.right > 1.5) T.line.push(tag + '：细线在格线处断开 ' + round(qr.left - pr.right) + 'px');
+        if (qr.left - pr.right > 1.5) T.line.push(tag + '：浅底在格线处断开 ' + round(qr.left - pr.right) + 'px');
       } else {
-        if (Math.abs(pr.right - R(p.c).right) > 1.5) T.line.push(tag + '：折行前细线没画到这一行最后');
-        if (+q.c.dataset.beat !== 0 || Math.abs(qr.left - geo(q.c).left) > 1.5) T.line.push(tag + '：折行后细线没从下一行开头接着画');
+        if (Math.abs(pr.right - R(p.c).right) > 1.5) T.line.push(tag + '：折行前浅底没铺到这一行最后');
+        if (+q.c.dataset.beat !== 0 || Math.abs(qr.left - geo(q.c).left) > 1.5) T.line.push(tag + '：折行后浅底没从下一行开头接着铺');
       }
     }
-    const lc = parse(getComputedStyle(segs[0].l).backgroundColor), chip = chroma(s), ch = s.querySelector('.ch');
-    if (chip) {
+    // 颜色跟字走：韵脚字 = 这一格的颜色（同一色相）；没涂色的字 = 字色的淡色（同一个颜色、带透明度）
+    const lc = parse(getComputedStyle(segs[0].l).backgroundColor), ch = s.querySelector('.ch');
+    const cellC = chroma(c);
+    if (s.dataset.rhyme && cellC) {
       const x = lc && hsl(lc);
-      if (!x || x.s < 0.2 || hueDist(x.h, chip.h) > 15) T.lineColor.push(tag + '：韵脚字的细线不是这一格的颜色');
+      if (!x || x.s < 0.2 || hueDist(x.h, cellC.h) > 15) T.lineColor.push(tag + '：韵脚字的浅底不是这一格的颜色');
     } else if (ch && text(ch)) {
       const cc = parse(getComputedStyle(ch).color);
-      if (!lc || !cc || [0, 1, 2].some(i => Math.abs(lc[i] - cc[i]) > 2)) T.lineColor.push(tag + '：细线颜色和字不一样');
+      if (!lc || !cc || lc[3] > 0.5 || [0, 1, 2].some(i => Math.abs(lc[i] - cc[i]) > 2)) T.lineColor.push(tag + '：浅底颜色不是字色的淡色');
     }
   }
   return out;
@@ -321,8 +335,8 @@ class Run:
             self.fail(tag, "表格里出现「续」（一句超过一小节折到下一行，不加续行标记）")
         if T["rowHeadBad"]:
             self.fail(tag, f"行头不只是两位小节号：{T['rowHeadBad'][:3]}")
-        for key, label in (("overflow", "字挤出格子"), ("small", "字号小于最小字宽 11px"), ("place", "tick 落点"), ("line", "字的长度细线"),
-                           ("lineColor", "细线颜色"), ("holdPainted", "只有拖音的格子被涂了色")):
+        for key, label in (("overflow", "字挤出格子"), ("small", "字号小于最小字宽 11px"), ("place", "tick 落点"), ("line", "字的长度浅底"),
+                           ("lineColor", "浅底颜色"), ("holdPainted", "只有拖音的格子被涂了色")):
             for x in T[key][:5]:
                 self.fail(tag, f"{label}：{x}")
             if len(T[key]) > 5:
@@ -346,9 +360,9 @@ class Run:
                     T = info["sheet"]
                     if size == "desktop":
                         if not T["crossCell"]:
-                            self.fail(tag, "跨格细线：没有一个字的细线越过格线拖进下一格（夜车第 5 小节「拍」）")
+                            self.fail(tag, "跨格浅底：没有一个字的浅底越过格线拖进下一格（夜车第 5 小节「拍」）")
                         if not T["wrap"]:
-                            self.fail(tag, "跨行细线：没有一个字的细线拖到下一行开头（夜车第 6 小节「口」）")
+                            self.fail(tag, "跨行浅底：没有一个字的浅底拖到下一行开头（夜车第 6 小节「口」）")
                         if not T["holdOnly"]:
                             self.fail(tag, "没有只有拖音的格子（夜车第 7 小节第 2 拍）")
                         if not T["fullBeat"]:
@@ -441,23 +455,27 @@ class Run:
             ctx.close()
 
     def edit_word(self, page, bar, beat, which, text):
-        slot = page.locator(f'[data-role="row"][data-bar="{bar}"] [data-role="cell"][data-beat="{beat}"] [data-role="slot"]').nth(which)
-        slot.click()
-        inp = page.locator('[data-role="word-input"]')
+        """v3.1：双击格子改这一拍的字——把这一拍现在的字换掉第 which 个，整拍回车（位置够，按原节奏填）。"""
+        cell = page.locator(f'[data-role="row"][data-bar="{bar}"] [data-role="cell"][data-beat="{beat}"]')
+        words = cell.locator('[data-role="word"]')
+        chars = [w.inner_text().strip() for w in words.all()]
+        chars[which] = text
+        cell.dblclick(position={"x": 3, "y": 3})
+        inp = page.locator('[data-role="cell-editor"]')
         inp.wait_for(timeout=3000)
-        inp.fill(text)
+        inp.fill("".join(chars))
         inp.press("Enter")
         page.wait_for_timeout(60)
-        if page.locator('[data-role="word-input"]').count():
-            page.locator('[data-role="word-input"]').press("Escape")
+        if page.locator('[data-role="cell-editor"]').count():
+            page.locator('[data-role="cell-editor"]').press("Escape")
         page.wait_for_timeout(60)
-        return slot
+        return words.nth(which)
 
     def strict(self, browser):
         tag = "严格韵母比对"
         ctx, page = self.page(browser)
         try:
-            sel = '[data-role="row"][data-bar="2"] [data-role="cell"][data-beat="3"] [data-role="slot"]'
+            sel = '[data-role="row"][data-bar="2"] [data-role="cell"][data-beat="3"] [data-role="word"]'
             if page.locator(sel).last.get_attribute("data-rhyme") != "ang":
                 self.fail(tag, "第 2 小节第 4 拍最后一个字应该押 ang（蓝色 i · ang）")
             self.edit_word(page, 2, 3, -1, "想")
@@ -512,7 +530,7 @@ class Run:
             if not any("雨" in e for e in entries) or not any("早" in e for e in entries):
                 self.fail(tag, f"刷新以后历史面板里没有刚才的步骤：{entries[:4]}")
             page.keyboard.press("Escape")
-            first = '[data-role="row"][data-bar="3"] [data-role="cell"][data-beat="1"] [data-role="slot"] .ch'
+            first = '[data-role="row"][data-bar="3"] [data-role="cell"][data-beat="1"] [data-role="word"] .ch'
             before = page.locator(first).first.inner_text()
             page.locator('[data-role="undo"]').click()
             page.wait_for_timeout(100)
@@ -528,7 +546,7 @@ class Run:
             tag = f"换伴奏 BPM 弹窗 {size}"
             ctx, page = self.page(browser, size)
             try:
-                ticks0 = page.evaluate("""() => [...document.querySelectorAll('[data-role="slot"]')].map(s => s.dataset.abs).join()""")
+                ticks0 = page.evaluate("""() => [...document.querySelectorAll('[data-role="word"]')].map(s => s.dataset.abs).join()""")
                 page.locator('[data-role="beat-file"]').set_input_files(str(wav))
                 try:
                     page.wait_for_selector('[data-role="bpm-dialog"]', timeout=15000)
@@ -561,7 +579,7 @@ class Run:
                 bpm = page.locator('[data-role="bpm"]').first.inner_text()
                 if bpm.strip() != "100":
                     self.fail(tag, f"选了「改用新 BPM」以后 BPM 应该是 100，现在 {bpm}")
-                ticks1 = page.evaluate("""() => [...document.querySelectorAll('[data-role="slot"]')].map(s => s.dataset.abs).join()""")
+                ticks1 = page.evaluate("""() => [...document.querySelectorAll('[data-role="word"]')].map(s => s.dataset.abs).join()""")
                 if ticks0 != ticks1:
                     self.fail(tag, "换 BPM 以后字的 tick 变了（应该跟着拍子走，tick 不变）")
                 page.locator('[data-role="history-btn"]').click()
@@ -621,16 +639,16 @@ class Run:
             box = cell.bounding_box()
             cell.click(position={"x": box["width"] * 0.3, "y": box["height"] / 2})
             page.wait_for_timeout(100)
-            slots = cell.locator('[data-role="slot"]')
+            slots = cell.locator('[data-role="word"]')
             if slots.count() != 1 or slots.first.get_attribute("data-tick") != "12" or slots.first.get_attribute("data-len") != "12":
                 self.fail(tag, f"按 1/16 点在第 1 拍 30% 处应该放一个 tick 12、长 12 的字（{slots.count()} 个）")
             page.keyboard.press("-")
             page.wait_for_timeout(80)
             if slots.first.get_attribute("data-len") != "24":
                 self.fail(tag, f"按 - 应该多拖一个精度单位（长 24），现在 {slots.first.get_attribute('data-len')}")
-            if not cell.locator('[data-role="drag-line"]').count():
-                self.fail(tag, "字拖长以后后面没有细线")
-            grip = page.locator('[data-role="stretch-handle"]')
+            if not cell.locator('[data-role="hold-tint"]').count():
+                self.fail(tag, "字拖长以后后面没有浅底")
+            grip = page.locator(f'[data-role="hold-grip"][data-word="{slots.first.get_attribute("data-word")}"]')
             g = grip.bounding_box()
             target = page.locator('[data-role="row"][data-bar="1"] [data-role="cell"][data-beat="1"]').bounding_box()
             page.mouse.move(g["x"] + g["width"] / 2, g["y"] + g["height"] / 2)
@@ -641,9 +659,9 @@ class Run:
             ln = slots.first.get_attribute("data-len")
             if ln != "60":
                 self.fail(tag, f"拖右边缘到第 2 拍中间应该拉到长 60（12 → 72 tick），现在 {ln}")
-            nxt = page.locator('[data-role="row"][data-bar="1"] [data-role="cell"][data-beat="1"] [data-role="drag-line"]')
+            nxt = page.locator('[data-role="row"][data-bar="1"] [data-role="cell"][data-beat="1"] [data-role="hold-tint"]')
             if not nxt.count():
-                self.fail(tag, "拉过格线以后，下一格里没有接着画的细线")
+                self.fail(tag, "拉过格线以后，下一格里没有接着铺的浅底")
             info = self.probe(page)
             for x in info["sheet"]["line"][:3]:
                 self.fail(tag, x)
@@ -668,7 +686,7 @@ class Run:
             labels = info["sections"]
             if "Verse 1" not in labels or "Hook" not in labels:
                 self.fail(tag, f"迁移后段落名应该是英文（Verse 1 / Hook），现在 {labels}")
-            words = page.evaluate("""() => [...document.querySelectorAll('[data-role="lyrics-sheet"] [data-role="slot"]')].map(s => [s.closest('[data-role="cell"]').dataset.bar, s.dataset.abs, s.dataset.len, s.innerText.trim()])""")
+            words = page.evaluate("""() => [...document.querySelectorAll('[data-role="lyrics-sheet"] [data-role="word"]')].map(s => [s.closest('[data-role="cell"]').dataset.bar, s.dataset.abs, s.dataset.len, s.innerText.trim()])""")
             want = [["1", "0", "12", "我"], ["1", "12", "36", "来"], ["2", "264", "60", "了"]]
             got = [w for w in words if w[3]]
             if got != want:
@@ -794,7 +812,7 @@ def main():
         for f in run.F:
             print("  - " + f)
         return 1
-    print("OK：构建产物在桌面 / 手机 × 浅 / 深色下全部断言通过（拖音细线、只有拖音不能涂色、折行无续、同韵合并、严格韵母、单线撤销、刷新保留历史、BPM 默认推荐新 BPM、无录音 / AI、1/32 左右滑、铺 flow、v2 迁移）")
+    print("OK：构建产物在桌面 / 手机 × 浅 / 深色下全部断言通过（拖音浅底、只有拖音不能涂色、折行无续、同韵合并、严格韵母、单线撤销、刷新保留历史、BPM 默认推荐新 BPM、无录音 / AI、1/32 左右滑、铺 flow、v2 迁移）")
     return 0
 
 

@@ -1,8 +1,8 @@
 /**
  * 把 core 的数据算成表格要画的东西（纯函数，不碰 DOM）。
  *
- * 一行 = 一小节，一格 = 一拍。字画成「字框 + 后面的同色细线」：字框长度按 core/flow 的 boxTicks，
- * 细线画到字结束的 tick，越过格线、拖过一行末尾就接着画在下一行第一格开头。
+ * 一行 = 一小节，一格 = 一拍。格子里没有字框：字直接写在落点上（宽度按 core/flow 的 boxTicks 留给字形），
+ * 比字框长的字（拖音）从落点起铺一块同色浅底到字结束，越过格线、拖过一行末尾就接着铺在下一行第一格开头。
  * 一句超过一小节时超出的字自然落在下一行开头，不加任何续行标记。
  */
 
@@ -50,7 +50,8 @@ export interface WordView {
   mismatch: { got: string; want: string } | null;
 }
 
-export interface SegView {
+/** 拖音浅底的一段（按格切开） */
+export interface TintView {
   /** 起点所在那个字 */
   wordId: string;
   /** 起点那个字所在的格（字归属它起点所在的格） */
@@ -61,10 +62,10 @@ export interface SegView {
   /** 这一段在全曲里的 [s, e) */
   s: number;
   e: number;
-  /** 从字框右边开始（这一段在字所在那一格） */
-  first: boolean;
+  /** 从字的落点开始（这一段在字所在那一格） */
+  head: boolean;
   /** 字在这一段结束 */
-  last: boolean;
+  tail: boolean;
   tone: 'rp' | 'ink' | 'empty';
   hue: number | null;
 }
@@ -79,7 +80,8 @@ export interface CellView {
   rule: RhymeRule | null;
   mode: BeatMode;
   words: WordView[];
-  segs: SegView[];
+  /** 经过这一格的拖音浅底（含起点在这一格的字自己那一段） */
+  tints: TintView[];
   /** 只有拖音时：是哪个字拖过来的 */
   holdFrom: { bar: number; beat: number; text: string } | null;
   lockedCell: boolean;
@@ -143,13 +145,13 @@ export function sheetView(doc: Doc): SheetView {
     });
   }
 
-  // 细线：每个比字框长的字，从字框右边画到字结束，按格切段
-  const segsByCell = new Map<string, SegView[]>();
+  // 拖音浅底：每个比字框长的字，从落点铺到字结束，按格切段
+  const segsByCell = new Map<string, TintView[]>();
   for (const w of words) {
     const v = wordView.get(w.abs)!;
-    const ls = w.abs + v.box;
+    const ls = w.abs;
     const le = w.abs + w.word.len;
-    if (le <= ls) continue;
+    if (w.word.len <= v.box) continue;
     const fromBeat = Math.floor(w.word.tick / TICKS_PER_BEAT);
     for (let c0 = Math.floor(ls / TICKS_PER_BEAT) * TICKS_PER_BEAT; c0 < le; c0 += TICKS_PER_BEAT) {
       const g = Math.floor(c0 / TICKS_PER_BAR);
@@ -167,8 +169,8 @@ export function sheetView(doc: Doc): SheetView {
         fromOff: v.off,
         s,
         e,
-        first: s === ls,
-        last: e === le,
+        head: s === ls,
+        tail: e === le,
         tone: v.hue !== null ? 'rp' : v.text ? 'ink' : 'empty',
         hue: v.hue,
       });
@@ -181,7 +183,7 @@ export function sheetView(doc: Doc): SheetView {
       const key = cellKey(b.data.id, beat);
       const ws = b.data.words.filter((w) => Math.floor(w.tick / TICKS_PER_BEAT) === beat).map((w) => wordView.get(b.global * TICKS_PER_BAR + w.tick)!);
       const segs = segsByCell.get(key) ?? [];
-      // 没有新字、但有前面拖过来的细线经过 → 只有拖音
+      // 没有新字、但有前面拖过来的浅底经过 → 只有拖音
       const content: CellContent = ws.length ? 'words' : segs.length ? 'hold-only' : 'empty';
       const rule = content === 'words' ? (rules.get(doc.paint[key]) ?? null) : null;
       const from = content === 'hold-only' ? segs[0] : null;
@@ -195,7 +197,7 @@ export function sheetView(doc: Doc): SheetView {
         rule,
         mode: modesOf[b.global][beat],
         words: ws,
-        segs,
+        tints: segs,
         holdFrom: from && fromWord ? { bar: from.fromBar, beat: from.fromBeat, text: fromWord.word.text } : null,
         lockedCell: isCellLocked(doc.locks, b.data.id, beat),
         cellLockIcon: doc.locks.cells.includes(key),
