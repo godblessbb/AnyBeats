@@ -508,3 +508,76 @@ svg { display: block; }
 /* ---------- 12. 编辑、拉长、横向滑动 ---------- */
 /* 字太密（例如 1/32）手机上格子不够宽时：整张表左右滑，行头和列头跟着走 */
 .sheet.scroll .sec-h b, .sheet.scroll .sec-h span { position: sticky; left: 10px; }
+
+/* ---------- 13. 第 1 步方格（v3.2）：方格 = 这里唱一个字；空音 = 空白，不画 ---------- */
+/* 方格：字的落点到它在这一拍里结束的地方，左右各留 2px 缝。空的 = 实线边 + 浅灰底（占位）；写了字的 = 细边 + 字 */
+.cell .sq, .mini .sq {
+  position: absolute; top: var(--slot-top); height: var(--slot-h); z-index: 2; box-sizing: border-box; pointer-events: none;
+  left: calc(var(--t) / 48 * 100% + 2px); width: calc(var(--l) / 48 * 100% - 4px);
+  border-radius: 5px; display: flex; align-items: center; overflow: hidden;
+}
+.sq.empty { border: 1.5px solid var(--slot-line); background: color-mix(in srgb, var(--slot-line) 16%, var(--slot-bg)); }
+.sq.filled { border: 1px solid color-mix(in srgb, var(--slot-line) 70%, transparent); background: var(--slot-bg); }
+.cell.painted .sq.filled { background: color-mix(in srgb, var(--slot-bg) 70%, transparent); }
+.sq.rp.filled { border-color: hsl(var(--h) 45% 55%); }
+.sq.w32 { border-radius: 3px; }
+.sq.focus { border: 2px solid var(--ab-accent); box-shadow: 0 0 0 3px var(--ab-accent-soft); overflow: visible; z-index: 3; }
+.sq .caret { position: absolute; left: calc(3px + var(--cw, 0px) + 1px); top: 20%; bottom: 20%; width: 2px; background: var(--ab-accent); animation: sq-blink 1s steps(1) infinite; }
+.sq.w32 .caret { left: 1px; }
+@keyframes sq-blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .sq .caret { animation: none; } }
+.mini .sq .ch { font-size: 12px; padding-left: 3px; color: var(--ab-text); }
+/* 第 1 步：字写在方格上面；拖音浅底垫在方格下面（只在拖过拍线的地方看得见）；字的下划线 / 选中框交给方格 */
+.sheet[data-step="1"] .wd { z-index: 4; }
+.sheet[data-step="1"] .tint:not(.preview) { z-index: auto; }
+.sheet[data-step="1"] .wd.blank::after { display: none; }
+.sheet[data-step="1"] .wd.cur { outline: none; }
+.sheet[data-step="1"] .tint.cur { box-shadow: none; }
+/* 空音：光标停在空音上时画一圈强调色虚线 */
+.cell .rest { position: absolute; top: var(--slot-top); height: var(--slot-h); z-index: 2; box-sizing: border-box; pointer-events: none;
+  left: calc(var(--t) / 48 * 100% + 2px); width: calc(var(--l) / 48 * 100% - 4px); }
+.rest.focus { border: 1.5px dashed var(--ab-accent); border-radius: 5px; display: flex; align-items: center; justify-content: center; }
+.rest.focus em { font-style: normal; font-size: 11px; color: var(--ab-accent-text); font-weight: 600; white-space: nowrap; }
+/* 看不见的输入框：贴在光标方格上拿焦点（输入法候选框跟着它） */
+.sq-input { position: absolute; top: var(--slot-top); height: var(--slot-h); left: calc(var(--t) / 48 * 100% + 2px); width: calc(var(--l) / 48 * 100% - 4px);
+  z-index: 1; opacity: 0; border: 0; padding: 0; margin: 0; background: transparent; color: transparent; caret-color: transparent; font-size: 16px; pointer-events: none; }
+/* 改方格的按键气泡 */
+.sq-tip { position: absolute; z-index: 8; left: 0; top: calc(100% + 4px); width: 318px; background: var(--ab-surface); border: 1px solid var(--ab-line-3); border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .16); padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; font-size: 12px; color: var(--ab-text); line-height: 1.5; pointer-events: none; }
+/* 气泡本身不挡点击（点到气泡下面的格子照样换格），只有四个按钮能点 */
+.sq-tip .act { pointer-events: auto; }
+.cell[data-beat="2"] .sq-tip, .cell[data-beat="3"] .sq-tip { left: auto; right: 0; }
+.sq-tip.up { top: auto; bottom: calc(100% + 4px); }
+.sq-tip b { font-size: 13px; font-weight: 600; }
+.sq-tip .k { color: var(--ab-text-muted); }
+.sq-tip .acts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.sq-tip .act { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 2px 5px; border: 1px solid var(--ab-line-2); border-radius: 8px; background: var(--ab-surface-2); color: var(--ab-text); font: inherit; cursor: pointer; }
+.sq-tip .act:hover:not(:disabled) { border-color: var(--ab-accent-line); }
+.sq-tip .act b { font-size: 12px; }
+.sq-tip .act span { display: flex; gap: 2px; align-items: center; font-size: 10px; color: var(--ab-text-muted); white-space: nowrap; }
+.sq-tip .act:disabled { opacity: .45; cursor: default; }
+/* 清空全部 flow：就地确认（和「清空当前文字…」同一种做法） */
+.btn.danger svg { width: 14px; height: 14px; }
+.btn.danger.solid { background: var(--a-error); border-color: var(--a-error); color: var(--ab-surface); font-weight: 600; }
+.clear-confirm { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border: 1.5px solid var(--ab-warn-line); border-radius: 9px; background: var(--ab-warn-soft); min-width: 0; }
+.clear-confirm .q { font-size: 12px; color: var(--ab-text); line-height: 1.4; }
+/* 右栏图例、按键表 */
+.lg-row { display: flex; align-items: center; gap: 10px; }
+.lg-row + .lg-row { margin-top: 8px; }
+.lg-row .note { margin: 0; }
+.sq-mini { flex: none; --slot-top: 9px; --slot-h: 16px; }
+.sq-mini .mc { height: 29px; }
+.sq-mini .trip { top: 3px; height: 4px; }
+.sq-mini .trip b { font-size: 9px; top: -4px; line-height: 9px; }
+.keylist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--ab-text); }
+.keylist li { display: flex; gap: 8px; align-items: baseline; }
+.keylist .keys { flex: none; width: 100px; display: flex; gap: 2px; align-items: center; color: var(--ab-text-muted); white-space: nowrap; }
+@media (max-width: 600px) {
+  .app[data-step="1"] .tools { flex-wrap: wrap; row-gap: 6px; overflow: visible; }
+  .app[data-step="1"] .tools .clear-flow, .app[data-step="1"] .tools .clear-confirm { margin-left: auto; }
+  .clear-confirm { width: 100%; }
+  .clear-confirm .q { flex: 1; font-size: 11px; }
+  .sq.focus { box-shadow: 0 0 0 2px var(--ab-accent-soft); }
+  .rest.focus em { font-size: 10px; }
+  .sq-tip { position: fixed; left: 8px !important; right: 8px !important; top: auto; bottom: 64px; width: auto; }
+}

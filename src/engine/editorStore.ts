@@ -20,6 +20,16 @@ import {
   checkChanges,
   clearBar,
   copyFlowToNextBar,
+  fillRest,
+  mergeSquare,
+  resetFlow,
+  restSquare,
+  splitSquare,
+  squareAt,
+  squareBox,
+  squareName,
+  typeIntoSquares,
+  wordAt,
   createAutosave,
   createSection,
   deleteBars,
@@ -36,6 +46,7 @@ import {
   holdInto,
   insertBars,
   insertSection,
+  isBlankFlow,
   isCellLocked,
   locateTick,
   lockedWordTicks,
@@ -145,6 +156,8 @@ export interface EditorState {
   cursor: number | null;
   /** 正在改字的那一拍（双击格子 / 选中字按回车） */
   editing: { key: string; global: number; beat: number } | null;
+  /** 第 1 步正在改的方格（字的全曲起点）；rest 不是 null 时光标停在一段空音上（长度 rest） */
+  flowEdit: { abs: number; rest: number | null } | null;
   history: HistoryView;
   save: SaveStatus;
   notice: { text: string; at: number } | null;
@@ -163,6 +176,8 @@ export interface EditorStoreOptions {
 }
 
 export const BPM_MIN = 40;
+/** 两下空格算「空音」的时间窗（毫秒，按 keydown 的 timeStamp 量） */
+export const DOUBLE_SPACE_MS = 400;
 export const BPM_MAX = 220;
 
 const browserTimers: TimerApi = {
@@ -186,6 +201,8 @@ export class EditorStore {
   private autosave!: Autosave;
   private listeners = new Set<() => void>();
   private state: EditorState;
+  /** 第 1 步上一下空格：时间、按在哪个方格、有没有真的分开、分开后的那份 Doc（两下空格时用来确认能撤回） */
+  private lastSpace: { at: number; abs: number; split: Doc | null } | null = null;
 
   constructor(options: EditorStoreOptions) {
     this.storage = options.storage;
@@ -278,6 +295,7 @@ export class EditorStore {
       anchor: null,
       cursor: null,
       editing: null,
+      flowEdit: null,
       history: this.historyView(),
       save: this.storage.persistent ? { kind: 'saved', at: p.updatedAt || null } : { kind: 'memory', reason: this.storage.reason ?? '拿不到本机存储' },
       notice: null,
@@ -372,18 +390,31 @@ export class EditorStore {
 
   undo(): void {
     if (!this.history.canUndo) return;
-    this.set({ doc: this.history.undo(), history: this.historyView(), holdTip: null, editing: null }, true);
+    this.lastSpace = null;
+    const doc = this.history.undo();
+    this.set({ doc, history: this.historyView(), holdTip: null, editing: null, flowEdit: this.refocus(doc.grid) }, true);
   }
 
   redo(): void {
     if (!this.history.canRedo) return;
-    this.set({ doc: this.history.redo(), history: this.historyView(), holdTip: null, editing: null }, true);
+    this.lastSpace = null;
+    const doc = this.history.redo();
+    this.set({ doc, history: this.historyView(), holdTip: null, editing: null, flowEdit: this.refocus(doc.grid) }, true);
+  }
+
+  /** 撤销 / 重做后光标还停在原来的位置：那里有方格就是方格，是空白就是空音，都不是就退出改字 */
+  private refocus(grid: Grid): EditorState['flowEdit'] {
+    const f = this.state.flowEdit;
+    if (!f) return null;
+    if (wordStartingAt(grid, f.abs)) return { abs: f.abs, rest: null };
+    const len = restLenAt(grid, f.abs);
+    return len ? { abs: f.abs, rest: f.rest !== null ? Math.min(f.rest, len) : len } : null;
   }
 
   // ---------- 步骤 / 精度 ----------
 
   setStep(step: Step): void {
-    if (step !== this.state.step) this.set({ step, editing: null, holdTip: null, selection: [], selColumn: null, anchor: null });
+    if (step !== this.state.step) this.set({ step, editing: null, flowEdit: null, holdTip: null, selection: [], selColumn: null, anchor: null });
   }
 
   setPrecision(precision: Precision): void {
@@ -440,6 +471,162 @@ export class EditorStore {
 
   clearBarFlow(globalBar: number): void {
     this.exec(`铺 flow 清空第 ${globalBar + 1} 小节`, 'flow', (d) => ({ ...d, grid: clearBar(d.grid, globalBar) }), { cursor: null });
+  }
+
+  /** 清空全部 flow：段落、小节都留着，每一拍变回一个空方格（文字、拖音清掉），算一步 */
+  clearAllFlow(): boolean {
+    this.lastSpace = null;
+    return this.exec('铺 flow 清空全部 flow（每拍一个方格）', 'flow', (d) => ({ ...d, grid: resetFlow(d.grid) }), { cursor: null, flowEdit: null, selection: [], selColumn: null });
+  }
+
+  // ---------- 第 1 步：方格（v3.2） ----------
+
+  private squareWhere(abs: number): string {
+    return cellName(Math.floor(abs / TICKS_PER_BAR), Math.floor((abs % TICKS_PER_BAR) / TICKS_PER_BEAT));
+  }
+
+  /** 第 1 步点格子：点在方格上 → 改这个方格；点在空白上 → 按精度放一个方格（v3.1 的放字规则）再改它 */
+  flowPick(absTick: number): void {
+    this.lastSpace = null;
+    const hit = squareAt(this.grid, absTick);
+    if (hit !== null) {
+      this.set({ flowEdit: { abs: hit, rest: null }, cursor: hit, holdTip: null, selection: [], selColumn: null });
+      return;
+    }
+    const at = snapTick(absTick, this.state.precision);
+    if (wordStartingAt(this.grid, at) || this.exec(`铺 flow ${this.squareWhere(at)}放一个方格`, 'flow', (d) => ({ ...d, grid: placeWord(d.grid, at, this.state.precision) }))) {
+      this.set({ flowEdit: { abs: at, rest: null }, cursor: at, holdTip: null, selection: [], selColumn: null });
+    }
+  }
+
+  /** 退出改方格（Enter / Esc / 点别处） */
+  endFlowEdit(): void {
+    this.lastSpace = null;
+    if (this.state.flowEdit) this.set({ flowEdit: null });
+  }
+
+  /** 两下空格之间按了别的键：不再等第二下 */
+  resetSpace(): void {
+    this.lastSpace = null;
+  }
+
+  /** 在光标方格里打字（输入法上屏的一整串也走这里）：写进这一格，多的字往后填这一拍里的方格；空音里打字 = 放回方格并写上字 */
+  typeSquare(raw: string): void {
+    this.lastSpace = null;
+    const f = this.state.flowEdit;
+    const chars = Array.from(raw.replace(/\s+/g, ''));
+    if (!f || !chars.length) return;
+    if (f.rest !== null) {
+      const r = fillRest(this.grid, f.abs, f.rest, chars[0]);
+      if (r.ok && this.exec(`铺 flow ${this.squareWhere(f.abs)}空音放回方格「${chars[0]}」`, 'flow', (d) => ({ ...d, grid: r.grid }))) {
+        this.set({ flowEdit: { abs: f.abs, rest: null }, cursor: f.abs });
+        if (chars.length > 1) this.notify(`一格一个字：多打的 ${chars.length - 1} 个字没写`);
+      }
+      return;
+    }
+    const r = typeIntoSquares(this.grid, f.abs, chars);
+    if (!r.written) return;
+    this.exec(`填字 ${this.squareWhere(f.abs)}「${chars.slice(0, r.written).join('')}」`, 'fill', (d) => ({ ...d, grid: r.grid }));
+    if (r.dropped) this.notify(`这一拍后面没有方格了：多打的 ${r.dropped} 个字没写（不会写进下一拍）`);
+  }
+
+  /** 一分为 n（2 = 空格，3 = Shift+空格）；光标留在第一块。返回分了没有 */
+  splitFocus(n: 2 | 3, viaSpace = false): boolean {
+    if (!viaSpace) this.lastSpace = null;
+    const f = this.state.flowEdit;
+    if (!f || f.rest !== null) return false;
+    const loc = wordStartingAt(this.grid, f.abs);
+    if (!loc) return false;
+    const b = squareBox(loc.word);
+    const r = splitSquare(this.grid, f.abs, n);
+    if (!r.ok) {
+      if (r.reason === 'finest') this.notify('已经是 1/32，最细了，不能再分。要空音按两下空格；要合回去按 ⌫');
+      else if (r.reason === 'triplet') this.notify(`${squareName(b)}的格子分不成三连（每块会比 1/32 还细，或者分不均）`);
+      return false;
+    }
+    const what = n === 2 ? `一分二（${squareName(b)} → 两个 ${squareName(b / 2)}）` : `分成三连（${squareName(b)} → 3 个 ${squareName(b / 3)}）`;
+    return this.exec(`铺 flow ${this.squareWhere(f.abs)}${what}`, 'flow', (d) => ({ ...d, grid: r.grid }), { cursor: f.abs });
+  }
+
+  /**
+   * 空格键（at = keydown 的 timeStamp）：一分二；0.4 秒内同一格的第二下 → 撤回刚才那一下分格，这一格变成空音，合起来只算历史里的一步。
+   * 第一下没分成（例如 1/32），第二下照样变成空音。
+   */
+  spaceKey(at: number): void {
+    const f = this.state.flowEdit;
+    const last = this.lastSpace;
+    this.lastSpace = null;
+    if (!f) return;
+    if (last && last.abs === f.abs && at >= last.at && at - last.at <= DOUBLE_SPACE_MS) {
+      const undid = !!last.split && this.history.state === last.split && this.history.canUndo;
+      if (last.split && !undid) return;
+      if (undid) {
+        this.history.undo();
+        this.state = { ...this.state, doc: this.history.state };
+      }
+      if (!this.restFocusNow(f.abs) && undid) this.history.redo();
+      this.set({ doc: this.history.state, history: this.historyView() }, true);
+      return;
+    }
+    if (f.rest !== null) return;
+    const ok = this.splitFocus(2, true);
+    this.lastSpace = { at, abs: f.abs, split: ok ? this.history.state : null };
+  }
+
+  private restFocusNow(abs: number): boolean {
+    const loc = wordStartingAt(this.grid, abs);
+    if (!loc) return false;
+    const len = squareBox(loc.word);
+    const r = restSquare(this.grid, abs);
+    if (!r.ok) return false;
+    const half = abs % TICKS_PER_BEAT === 0 && len === TICKS_PER_BEAT ? '' : `里 ${squareName(len)} 那一格`;
+    return this.exec(`铺 flow ${this.squareWhere(abs)}${half} → 空音`, 'flow', (d) => ({ ...d, grid: r.grid }), { flowEdit: { abs, rest: len }, cursor: null });
+  }
+
+  /** 气泡里的「空音」按钮：直接变成空音（一步） */
+  restFocus(): void {
+    this.lastSpace = null;
+    const f = this.state.flowEdit;
+    if (f && f.rest === null) this.restFocusNow(f.abs);
+  }
+
+  /** ⌫：方格有字先清字；空方格（或空音）和另一半合并 */
+  backspaceSquare(): void {
+    this.lastSpace = null;
+    const f = this.state.flowEdit;
+    if (!f) return;
+    const loc = f.rest === null ? wordStartingAt(this.grid, f.abs) : null;
+    if (loc?.word.text) {
+      this.exec(`填字 删掉${this.squareWhere(f.abs)}「${loc.word.text}」`, 'fill', (d) => ({ ...d, grid: setWordText(d.grid, loc.word.id, '') }));
+      return;
+    }
+    const r = mergeSquare(this.grid, f.abs, f.rest ?? undefined);
+    if (!r.ok) {
+      const why: Record<string, string> = {
+        whole: '整拍一个方格，不能再合；要空音按两下空格',
+        finer: '旁边那一半分得更细，先把它合回来',
+        'both-text': '要合的几格都有字，先删掉多的字',
+        hold: '前面是上一拍拖过来的音，合不了',
+        'no-square': '旁边都是空音，没有可以合的方格',
+      };
+      this.notify(why[r.reason] ?? '合不了');
+      return;
+    }
+    const after = wordStartingAt(r.grid, r.focus);
+    const size = after ? squareName(squareBox(after.word)) : '';
+    this.exec(`铺 flow ${this.squareWhere(r.focus)}合并成一个 ${size}`, 'flow', (d) => ({ ...d, grid: r.grid }), { flowEdit: { abs: r.focus, rest: null }, cursor: r.focus });
+  }
+
+  /** Tab / 方向键：光标去下一个（上一个）方格，可以跨拍、跨小节 */
+  moveSquare(dx: number): void {
+    this.lastSpace = null;
+    const f = this.state.flowEdit;
+    const starts = this.wordStarts();
+    if (!starts.length) return;
+    const from = f?.abs ?? this.state.cursor ?? -1;
+    const next = dx > 0 ? starts.find((t) => t > from) : [...starts].reverse().find((t) => t < from);
+    if (next === undefined) return;
+    this.set({ flowEdit: { abs: next, rest: null }, cursor: next });
   }
 
   private wordStarts(): number[] {
@@ -588,7 +775,8 @@ export class EditorStore {
   }
 
   clearSelection(): void {
-    this.set({ selection: [], selColumn: null, anchor: null, holdTip: null, cursor: null, editing: null });
+    this.lastSpace = null;
+    this.set({ selection: [], selColumn: null, anchor: null, holdTip: null, cursor: null, editing: null, flowEdit: null });
   }
 
   private holdTipFor(global: number, beat: number): EditorState['holdTip'] {
@@ -818,7 +1006,8 @@ export class EditorStore {
    * 否则直接换。歌词跟着拍子走：tick 不变，只重算秒数。
    */
   requestBeat(info: { name: string; bpm: number | null; durationSec: number | null; firstBeatMs: number }): void {
-    const hasWords = allBars(this.grid).some((b) => b.data.words.length > 0);
+    // 只有新作品默认的每拍一个空方格、还没铺 flow 也没写字：当成空工程，不弹窗
+    const hasWords = !isBlankFlow(this.grid);
     if (info.bpm !== null && !sameBpm(info.bpm, this.doc.bpm) && hasWords) {
       this.set({
         beatSwap: { name: info.name, bpm: info.bpm, durationSec: info.durationSec, firstBeatMs: info.firstBeatMs, plan: planBeatSwap(this.doc.bpm, info.bpm, totalTicks(this.grid), this.doc.offsetMs) },
@@ -1033,6 +1222,19 @@ export class EditorStore {
   canPaintKey(key: string): boolean {
     return canPaint(this.grid, key).ok;
   }
+}
+
+/** abs 这里是空白（没有字在发声）时，到下一个字 / 这一拍末尾有多长；不是空白返回 0 */
+function restLenAt(grid: Grid, abs: number): number {
+  if (wordAt(grid, abs)) return 0;
+  const beatEnd = (Math.floor(abs / TICKS_PER_BEAT) + 1) * TICKS_PER_BEAT;
+  let end = beatEnd;
+  const bar = barAt(grid, Math.floor(abs / TICKS_PER_BAR));
+  for (const w of bar?.words ?? []) {
+    const a = Math.floor(abs / TICKS_PER_BAR) * TICKS_PER_BAR + w.tick;
+    if (a > abs && a < end) end = a;
+  }
+  return end - abs;
 }
 
 function findWordAt(grid: Grid, abs: number) {

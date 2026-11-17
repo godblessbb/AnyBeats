@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { allWords, barAt, cellKey, DEFAULT_POLISH, deserializeProject, serializeProject, TICKS_PER_BAR, wordStartingAt, type Word } from '../../core';
+import { allWords, barAt, barCount, cellKey, DEFAULT_POLISH, deserializeProject, serializeProject, TICKS_PER_BAR, wordStartingAt, type Word } from '../../core';
 import { FakeTimers, MemoryStore } from '../../core/__tests__/fakeTime';
 import { V2_NIGHT_DRIVE } from '../../core/__tests__/fixtures/v2project';
 import { backupKey, CURRENT_KEY, historyKey, INDEX_KEY, LEGACY_KEY, ProjectLibrary, projectKey } from '../../storage/library';
@@ -28,10 +28,16 @@ const barText = (store: EditorStore, global: number) => barAt(store.grid, global
 const layout = (store: EditorStore, global: number) => barAt(store.grid, global)!.words.map((w) => [w.tick, w.len, w.text]);
 const kinds = (store: EditorStore) => store.getState().history.done.map((s) => s.kind);
 
+/** v3.2 起新作品每拍一个空方格；v3.1 的铺 flow 用例从完全空的小节开始：新建后把每一小节清空（每清一行算一步 flow） */
+function blankProject(store: EditorStore) {
+  store.newProject();
+  for (let g = barCount(store.grid) - 1; g >= 0; g--) store.clearBarFlow(g);
+}
+
 /** 空工程里铺好：第 1 小节第 1 拍两个空字（0、12），第 2 小节第 1 拍「我」+ 一个空字，第 3 小节一个空字（不涂色）；
  *  新建一种颜色（单押 ang），涂第 1、2 小节的第 1 拍 */
 function fillableProject(store: EditorStore) {
-  store.newProject();
+  blankProject(store);
   for (const abs of [at(0, 0), at(0, 12), at(1, 0), at(1, 12), at(2, 0)]) store.flowClick(abs);
   store.commitText(at(1, 0), '我');
   store.addRule();
@@ -260,7 +266,7 @@ describe('EditorStore：撤销 / 重做是一条线', () => {
 describe('EditorStore：铺 flow（拖音 = 字的长度，空音 = 空白）', () => {
   it('点格子按精度放空字；- 键拖长 / 缩短；拖右边缘吸附到精度；删掉留下空白', () => {
     const { store } = setup();
-    store.newProject();
+    blankProject(store);
     expect(store.getState().name).toBe('未命名 1');
     store.flowClick(5); // 1/16：吸附到 0
     expect(layout(store, 0)).toEqual([[0, 12, '']]);
@@ -295,7 +301,7 @@ describe('EditorStore：铺 flow（拖音 = 字的长度，空音 = 空白）', 
 
   it('字可以拖过小节线：下一行开头只有拖音；复制一行的 flow 到下一行（不带字）', () => {
     const { store } = setup();
-    store.newProject();
+    blankProject(store);
     store.flowClick(at(0, 168));
     store.stretchWord(at(0, 168), at(1, 24));
     expect(wordAt(store, at(0, 168))?.len).toBe(48);
@@ -917,5 +923,127 @@ describe('EditorStore v3.1：点拍头选整列、加段落、打开在哪一步
     store.openProject(id);
     expect(store.getState().projectId).toBe(id);
     expect(store.getState().step).toBe(1);
+  });
+});
+
+describe('EditorStore：第 1 步方格（v3.2）', () => {
+  const beat = (store: EditorStore, global: number, b: number) =>
+    barAt(store.grid, global)!.words.filter((w) => Math.floor(w.tick / 48) === b).map((w) => [w.tick % 48, w.len, w.text]);
+
+  it('新作品每拍一个空方格、打开在第 1 步；换伴奏不弹窗（还没铺 flow）', () => {
+    const { store } = setup();
+    store.newProject();
+    expect(store.getState().step).toBe(1);
+    expect(beat(store, 0, 0)).toEqual([[0, 48, '']]);
+    expect(barAt(store.grid, 7)!.words).toHaveLength(4);
+  });
+
+  it('点方格进入改字，打字写进这一格（一步）；空格一分二，字留左边，光标在左边', () => {
+    const { store } = setup();
+    store.newProject();
+    store.flowPick(at(0, 50));
+    expect(store.getState().flowEdit).toEqual({ abs: at(0, 48), rest: null });
+    store.typeSquare('我');
+    expect(beat(store, 0, 1)).toEqual([[0, 48, '我']]);
+    store.spaceKey(1000);
+    expect(beat(store, 0, 1)).toEqual([
+      [0, 24, '我'],
+      [24, 24, ''],
+    ]);
+    expect(store.getState().flowEdit).toEqual({ abs: at(0, 48), rest: null });
+    store.spaceKey(1600); // 超过 0.4 秒：再分一次左边
+    expect(beat(store, 0, 1)).toEqual([
+      [0, 12, '我'],
+      [12, 12, ''],
+      [24, 24, ''],
+    ]);
+    expect(store.getState().history.done.map((s) => s.kind)).toEqual(['fill', 'flow', 'flow']);
+  });
+
+  it('0.4 秒内两下空格 → 空音，历史里只多一步；撤销一次回到完整方格，重做回到空音', () => {
+    const { store } = setup();
+    store.newProject();
+    store.flowPick(at(0, 100));
+    const before = JSON.stringify(store.grid);
+    const depth = store.getState().history.done.length;
+    store.spaceKey(5000);
+    store.spaceKey(5300);
+    expect(beat(store, 0, 2)).toEqual([]);
+    expect(store.getState().flowEdit).toEqual({ abs: at(0, 96), rest: 48 });
+    expect(store.getState().history.done).toHaveLength(depth + 1);
+    expect(store.getState().history.undoLabel).toMatch(/空音/);
+    store.undo();
+    expect(JSON.stringify(store.grid)).toBe(before);
+    expect(store.getState().flowEdit).toEqual({ abs: at(0, 96), rest: null });
+    store.redo();
+    expect(beat(store, 0, 2)).toEqual([]);
+    expect(store.getState().flowEdit).toEqual({ abs: at(0, 96), rest: 48 });
+  });
+
+  it('1/32 上第一下空格被拒，第二下照样变成空音；中间按了别的键就不算两下', () => {
+    const { store } = setup();
+    store.newProject();
+    store.flowPick(0);
+    for (const t of [0, 1000, 2000]) store.spaceKey(t);
+    expect(beat(store, 0, 0)[0]).toEqual([0, 6, '']);
+    store.spaceKey(3000);
+    expect(store.getState().notice?.text).toMatch(/1\/32/);
+    store.spaceKey(3200);
+    expect(beat(store, 0, 0)[0]).toEqual([6, 6, '']);
+    store.flowPick(6);
+    store.spaceKey(4000);
+    store.resetSpace();
+    store.spaceKey(4100);
+    expect(beat(store, 0, 0).slice(0, 1)).toEqual([[6, 6, '']]);
+  });
+
+  it('Shift+空格三连；⌫ 先清字再合并；整拍不能合', () => {
+    const { store } = setup();
+    store.newProject();
+    store.flowPick(at(1, 0));
+    store.splitFocus(3);
+    expect(beat(store, 1, 0)).toEqual([
+      [0, 16, ''],
+      [16, 16, ''],
+      [32, 16, ''],
+    ]);
+    store.backspaceSquare();
+    expect(beat(store, 1, 0)).toEqual([[0, 48, '']]);
+    store.backspaceSquare();
+    expect(store.getState().notice?.text).toMatch(/整拍/);
+    store.spaceKey(0);
+    store.moveSquare(1);
+    expect(store.getState().flowEdit).toEqual({ abs: at(1, 24), rest: null });
+    store.typeSquare('夜');
+    store.backspaceSquare();
+    expect(beat(store, 1, 0)).toEqual([
+      [0, 24, ''],
+      [24, 24, ''],
+    ]);
+    store.backspaceSquare();
+    expect(beat(store, 1, 0)).toEqual([[0, 48, '']]);
+    expect(store.getState().flowEdit).toEqual({ abs: at(1, 0), rest: null });
+  });
+
+  it('清空全部 flow：段落、小节都在，每拍一个方格，一步；撤销恢复到清空前逐字节一样', () => {
+    const { store } = setup();
+    const before = JSON.stringify(store.doc);
+    const bars = store.grid.sections.map((s) => [s.id, s.label, s.bars.map((b) => b.id)]);
+    expect(store.clearAllFlow()).toBe(true);
+    expect(store.grid.sections.map((s) => [s.id, s.label, s.bars.map((b) => b.id)])).toEqual(bars);
+    for (let g = 0; g < 9; g++) expect(barAt(store.grid, g)!.words.map((w) => [w.tick, w.len, w.text])).toEqual([0, 48, 96, 144].map((t) => [t, 48, '']));
+    expect(store.getState().history.done).toHaveLength(1);
+    store.undo();
+    expect(JSON.stringify(store.doc)).toBe(before);
+  });
+
+  it('点空白：按精度放一个方格并进入改字', () => {
+    const { store } = setup();
+    store.newProject();
+    store.flowPick(0);
+    store.restFocus();
+    store.flowPick(30);
+    expect(beat(store, 0, 0)).toEqual([[24, 12, '']]);
+    expect(store.getState().flowEdit).toEqual({ abs: 24, rest: null });
   });
 });

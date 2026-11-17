@@ -18,24 +18,34 @@ export function PrecisionChips() {
   );
 }
 
-/** 图例：字写在落点上；拖长了的字后面铺一块同色浅底到它结束（拖音 = 字的长度） */
-function Sample({ drag, label }: { drag: boolean; label: string }) {
+/** 图例：一拍里的方格（[起点, 宽, 字]）；没列出来的地方就是空音 */
+function Sample({ items, trip }: { items: [number, number, string][]; trip?: boolean }) {
   return (
-    <div className="mini" style={{ width: 118 }}>
+    <div className="mini sq-mini" style={{ width: 114 }}>
       <div className="mrow" style={{ '--n': 1 } as Css}>
         <div className="mc">
-          {drag && <span className="tint ink" style={{ left: '1px', right: '2px' }}></span>}
-          <span className="wd" data-kind="word" style={{ '--t': 0, '--l': 12 } as Css}>
-            <span className="ch">{label}</span>
-          </span>
-          {!drag && (
-            <span className="wd" data-kind="word" style={{ '--t': 24, '--l': 12 } as Css}>
-              <span className="ch">去</span>
+          {trip && (
+            <span className="trip">
+              <b>3</b>
             </span>
           )}
+          {items.map(([t, l, ch]) => (
+            <span key={t} className={`sq ${ch ? 'filled' : 'empty'}`} data-role="legend-square" style={{ '--t': t, '--l': l } as Css}>
+              {ch && <span className="ch">{ch}</span>}
+            </span>
+          ))}
         </div>
       </div>
     </div>
+  );
+}
+
+function Key({ k, children }: { k: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <li>
+      <span className="keys">{k}</span>
+      <span>{children}</span>
+    </li>
   );
 }
 
@@ -44,48 +54,68 @@ export function FlowPanel() {
   const s = useEditor();
   const unit = precisionUnit(s.precision);
   const label = PRECISIONS.find((p) => p.key === s.precision)?.label ?? s.precision;
-  const bar = s.cursor !== null ? Math.floor(s.cursor / TICKS_PER_BAR) : null;
+  const bar = s.cursor !== null ? Math.floor(s.cursor / TICKS_PER_BAR) : s.flowEdit ? Math.floor(s.flowEdit.abs / TICKS_PER_BAR) : null;
   const words = bar !== null ? (barAt(s.doc.grid, bar)?.words.length ?? 0) : 0;
   return (
     <div className="pn" data-role="flow-panel">
       <div className="pn-h">
         <h2>铺 flow</h2>
-        <span>第一步：先铺字的位置，第二步再填字</span>
+        <span>第一步：先定每个字落在哪</span>
       </div>
-      <div className="legend" data-role="slot-legend">
-        <div className="stretch">
-          <Sample drag label="字" />
+      <div className="blk" data-role="slot-legend">
+        <div className="blk-h">
+          <b>方格和空音</b>
+        </div>
+        <div className="lg-row">
+          <Sample items={[[0, 48, '']]} />
           <p className="note">
-            <b>拖音 = 字的长度</b>：字靠左写在落点上，后面一块同色浅底一直铺到它唱完；可以拖过格线、拖到下一行开头。
+            <b>方格</b> = 这里唱一个字（还没写字）。每一拍默认一个。
           </p>
         </div>
-        <div className="stretch">
-          <Sample drag={false} label="字" />
+        <div className="lg-row">
+          <Sample items={[[0, 24, '夜'], [24, 24, '']]} />
+          <p className="note">写了字的方格：字在格子里。</p>
+        </div>
+        <div className="lg-row">
+          <Sample items={[[0, 24, '']]} />
           <p className="note">
-            <b>空音</b>就是字和字之间留出的空白，不另外画。
+            <b>空音</b>：没有方格，只是空白，这里不唱。
           </p>
         </div>
+        <div className="lg-row">
+          <Sample items={[[0, 16, ''], [16, 16, ''], [32, 16, '']]} trip />
+          <p className="note">
+            <b>三连</b>：格子上方标「3」。
+          </p>
+        </div>
+      </div>
+      <div className="blk" data-role="key-help">
+        <div className="blk-h">
+          <b>点方格以后</b>
+        </div>
+        <ul className="keylist">
+          <Key k="打字">写进这一格（一格一个字）</Key>
+          <Key k={<span className="kbd">空格</span>}>一分为二：1/4 → 1/8 → 1/16 → 1/32（最细）</Key>
+          <Key k={<><span className="kbd">Shift</span>+<span className="kbd">空格</span></>}>分成三连</Key>
+          <Key k={<><span className="kbd">空格</span><span className="kbd">空格</span></>}>0.4 秒内两下：变成空音（只算一步）</Key>
+          <Key k={<span className="kbd">退格</span>}>有字先清字；空方格和旁边那一半合回去</Key>
+          <Key k={<><span className="kbd">Ctrl</span>+<span className="kbd">Z</span></>}>撤销，每一下都能撤</Key>
+        </ul>
+        <p className="note">输入法正在拼字时按空格是选字，不会分格。写了字的格子分开后，字留在左边那一半。点空白的地方按下面的精度放一个方格。</p>
       </div>
       <div className="blk">
         <div className="blk-h">
-          <b>落点精度</b>
+          <b>精度 · 拖长度</b>
         </div>
         <PrecisionChips />
-        <p className="note">每拍 48 tick：1/8 = 24、1/16 = 12、1/32 = 6、三连 = 16、半拍三连 = 8。点格子里的位置就放一个字；一拍里放 3 个字时格子上方标「3」。</p>
-      </div>
-      <div className="blk">
-        <div className="blk-h">
-          <b>怎么拉长</b>
-        </div>
         <p className="note">
-          拖字（或它后面浅底）的<b>右边缘</b>：往右拉长、往左缩短，吸附到这里的精度（第 2 步指针停在格子上也能拖）；或者选中按 <span className="kbd">-</span>，每按一次多拖一个精度单位（现在 {label} = {unit} tick），按 <span className="kbd">=</span> 缩回一个单位。
-          按 <span className="kbd">⌫</span> 删掉这个字，留下的就是空音。拉长不会改字，也不会挪后面的字。
+          点空白放方格、拖字的长度都吸附到这里。拖字（或它后面浅底）的<b>右边缘</b>改长度，可以拖过拍线、拖到下一行开头；或者按 <span className="kbd">-</span> / <span className="kbd">=</span>，每次一个精度单位（现在 {label} = {unit} tick）。
         </p>
       </div>
       <div className="blk">
         <div className="blk-h">
           <b>{bar !== null ? `第 ${bar + 1} 小节` : '这一行'}</b>
-          {bar !== null ? `${words} 个字` : '先点一个字'}
+          {bar !== null ? `${words} 个方格` : '先点一个方格'}
         </div>
         <div className="row-btns">
           <button className="btn sm" disabled={bar === null} onClick={() => bar !== null && store.copyFlowToNext(bar)}>
@@ -95,6 +125,7 @@ export function FlowPanel() {
             清空这一行
           </button>
         </div>
+        <p className="note">要整首重来，用工具条上的「清空全部 flow…」：每一拍变回一个方格。</p>
       </div>
     </div>
   );

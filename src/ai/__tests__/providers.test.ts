@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { barAt, cellKey, importAiLyrics, TICKS_PER_BAR } from '../../core';
+import { barAt, barCount, cellKey, importAiLyrics, TICKS_PER_BAR } from '../../core';
 import { FakeTimers, MemoryStore } from '../../core/__tests__/fakeTime';
 import { AiController } from '../../engine/aiController';
 import { EditorStore } from '../../engine/editorStore';
@@ -189,8 +189,14 @@ describe('AiController', () => {
    * 空工程：第 1 小节第 1 拍两个空字（涂色，要填）；第 2 小节第 1 拍「我」+ 空字（涂色，但已经写了字，整格跳过）；
    * 第 3 小节第 1 拍一个空字（没涂色，不填）。颜色：单押 ang。
    */
-  function fillable(store: EditorStore) {
+  /** v3.2 起新作品每拍一个空方格；这里要从完全空的小节开始铺：新建后把每一小节清空 */
+  function blankProject(store: EditorStore) {
     store.newProject();
+    for (let g = barCount(store.grid) - 1; g >= 0; g--) store.clearBarFlow(g);
+  }
+
+  function fillable(store: EditorStore) {
+    blankProject(store);
     for (const abs of [at(0, 0), at(0, 12), at(1, 0), at(1, 12), at(2, 0)]) store.flowClick(abs);
     store.commitText(at(1, 0), '我');
     store.addRule();

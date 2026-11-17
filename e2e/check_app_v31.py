@@ -25,6 +25,14 @@
   4 新建作品（一个字都没写）打开在第 1 步；刷新以后还是第 1 步
   5 拖浅底右边缘改长度：第 1 步放一个字，拖把手跨过小节线 → 字变长、下一行第一格接着铺；第 2 步指针停在格子上出现把手，拖回来变短
 任何一项不满足，退出码 1。只用标准库 + playwright（sync API）。
+
+v3.2 调整（ct_afdb4134：用户要求第 1 步每个 1/4 拍默认一个占位方格，点方格进入改字；见 design/DESIGN_v32.md）：
+  - 改掉的断言 1：场景 4「新建作品里不该有字」（info["words"] == 0）。v3.2 起新作品每拍有一个空方格（一个文字为空的字），
+    所以看得见的字不再是 0。换成等价的新行为检查：新建作品里一个字都没写（每个字的文字都是空的），而且每一格正好一个占满整拍的空方格
+    （data-role=square，data-box=48，data-square=empty）；「打开在第 1 步、刷新后还是第 1 步」原样保留。
+  - 改掉的断言 2：场景 5 一开始「在新作品第 1 小节第 4 拍 80% 处点一下放一个 tick 36 的字」。v3.2 起那一拍本来就有一个方格，
+    点它是进入改字，不再放字。换成：先用真实键盘把第 1 小节第 4 拍、第 2 小节第 1 拍各按两下空格变成空音（新行为），
+    再在空出来的第 4 拍 80% 处点一下——点空白照旧按精度放一个 tick 36 的字（同一条断言），后面拖把手跨小节线、第 2 步拖回来的断言一条不改。
 """
 
 import pathlib
@@ -452,8 +460,15 @@ class Run:
                 page.keyboard.press("Escape")
                 page.wait_for_timeout(100)
                 info = self.probe(tag, page, "1")
-                if info["words"]:
-                    self.fail(tag, "新建作品里不该有字")
+                cells = page.evaluate("""() => [...document.querySelectorAll('[data-role="lyrics-sheet"] [data-role="cell"]')].map(c => ({
+                    k: c.dataset.bar + ':' + c.dataset.beat,
+                    sq: [...c.querySelectorAll('[data-role="square"]')].map(s => s.dataset.box + '/' + s.dataset.square),
+                    text: [...c.querySelectorAll('[data-role="word"]')].map(w => w.innerText.trim()).join('') }))""")
+                if not cells or any(c["text"] for c in cells):
+                    self.fail(tag, "新建作品里不该写着字")
+                bad = [c["k"] for c in cells if c["sq"] != ["48/empty"]]
+                if bad:
+                    self.fail(tag, f"新建作品每一格应该正好一个空的 1/4 方格，这些格子不是：{bad[:6]}")
                 self.shot(page, f"empty_{size}")
                 page.wait_for_timeout(1300)
                 page.reload()
@@ -487,6 +502,16 @@ class Run:
             page.locator('[data-role="new-project"]').click()
             page.wait_for_timeout(200)
             page.keyboard.press("Escape")
+            # v3.2：新作品每拍一个方格。先把第 1 小节第 4 拍、第 2 小节第 1 拍按两下空格变成空音，空出位置
+            for bar, beat in ((1, 3), (2, 0)):
+                self.cell(page, bar, beat).click(position={"x": 6, "y": 25})
+                page.wait_for_timeout(80)
+                page.keyboard.press("Space")
+                page.keyboard.press("Space")
+                page.wait_for_timeout(120)
+                page.keyboard.press("Escape")
+                if self.cell(page, bar, beat).locator('[data-role="word"]').count():
+                    self.fail(tag, f"第 {bar} 小节第 {beat + 1} 拍按两下空格没有变成空音")
             # 第 1 步：在第 1 小节第 4 拍 80% 处放一个字（1/16 → tick 36）
             c = self.cell(page, 1, 3)
             b = c.bounding_box()

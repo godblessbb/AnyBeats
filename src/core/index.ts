@@ -3,6 +3,7 @@
  */
 export * from './clock';
 export * from './grid';
+export * from './squares';
 export * from './flow';
 export * from './rhymeRules';
 export * from './locks';

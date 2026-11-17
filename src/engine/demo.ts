@@ -10,6 +10,7 @@ import {
   importAiLyrics,
   insertWord,
   normalize,
+  resetFlow,
   TICKS_PER_BAR,
   TICKS_PER_BEAT,
   type AiLyricData,
@@ -189,5 +190,6 @@ export type ExampleKey = (typeof EXAMPLES)[number]['key'];
 
 /** 空工程：一个 8 小节的 Verse 1 */
 export function emptyProject(name: string, now: number, bpm = 90): Project {
-  return createProject({ name, bpm, createdAt: now, updatedAt: now, grid: { sections: [createSection('verse', 8, 'Verse 1')] } });
+  // 新作品每个 1/4 拍一个空方格（v3.2）：第 1 步一打开就看得出每拍唱一个字
+  return createProject({ name, bpm, createdAt: now, updatedAt: now, grid: resetFlow({ sections: [createSection('verse', 8, 'Verse 1')] }) });
 }

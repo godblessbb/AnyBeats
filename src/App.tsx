@@ -83,6 +83,10 @@ function useShortcuts(closeAll: () => void) {
       } else if (s.step === 1 && k === '=') {
         store.extendCursor(-1);
         done();
+      } else if (s.step === 1 && k === 'Enter' && s.cursor !== null) {
+        // 第 1 步选中的字按回车：进入改它的方格
+        store.flowPick(s.cursor);
+        done();
       } else if (s.step === 1 && (k === 'Backspace' || k === 'Delete')) {
         store.deleteCursorWord();
         done();
@@ -101,6 +105,40 @@ function useShortcuts(closeAll: () => void) {
   }, [store, transport, closeAll]);
 }
 
+/** 「清空全部 flow…」：和导出面板「清空当前文字…」一样先就地确认；确定后每一拍变回一个方格（一步，可以撤销） */
+function ClearFlow() {
+  const { store } = useServices();
+  const [ask, setAsk] = useState(false);
+  if (!ask)
+    return (
+      <button className="btn sm ghost danger clear-flow" data-role="clear-flow" title="每一拍变回一个方格（段落和小节留着，可以撤销）" onClick={() => setAsk(true)}>
+        <Icon.hist />
+        清空全部 flow…
+      </button>
+    );
+  return (
+    <div className="clear-confirm" data-role="clear-flow-confirm" role="alertdialog" aria-label="清空全部 flow">
+      <span className="q">
+        每一拍变回<b>一个方格</b>？段落和小节留着，字和拖音清掉，可以撤销。
+      </span>
+      <button
+        className="btn sm danger solid"
+        data-role="clear-flow-yes"
+        autoFocus
+        onClick={() => {
+          store.clearAllFlow();
+          setAsk(false);
+        }}
+      >
+        清空
+      </button>
+      <button className="btn sm ghost" data-role="clear-flow-no" onClick={() => setAsk(false)}>
+        取消
+      </button>
+    </div>
+  );
+}
+
 function Tools({ lockOpen, onToggleLock }: { lockOpen: boolean; onToggleLock: () => void }) {
   const s = useEditor();
   const rule = s.doc.rules.find((r) => r.id === s.activeRule);
@@ -110,8 +148,10 @@ function Tools({ lockOpen, onToggleLock }: { lockOpen: boolean; onToggleLock: ()
         <span className="lbl">精度</span>
         <PrecisionChips />
         <span className="status desk-only">
-          <b>点格子放字</b> · 拖字后面浅底的右边或按 - 改长度 · 删掉留下的空白就是空音
+          <b>点方格打字</b> · 空格分格 · 两下空格空音
         </span>
+        <span className="spacer desk-only"></span>
+        <ClearFlow />
       </div>
     );
   }

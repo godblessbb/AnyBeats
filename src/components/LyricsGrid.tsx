@@ -1,11 +1,13 @@
 import { createContext, memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as RPointerEvent } from 'react';
 import {
   MAX_BEAT_CHARS,
+  MIN_SQUARE_TICKS,
   minCellWidth,
   playheadAt,
   precisionUnit,
   SECTION_KIND_NAMES,
   SECTION_KINDS,
+  squareName,
   TICKS_PER_BAR,
   TICKS_PER_BEAT,
   totalTicks,
@@ -120,6 +122,152 @@ function CellEditor({ global, beat, initial }: { global: number; beat: number; i
   );
 }
 
+type FlowFocus = NonNullable<EditorState['flowEdit']>;
+
+const canSplit = (box: number, n: number) => Number.isInteger(box / n) && box / n >= MIN_SQUARE_TICKS;
+
+/**
+ * 第 1 步改方格：一个看不见的输入框贴在光标方格上（真焦点，输入法才能用），下面一个按键气泡。
+ * 空格一分二（0.4 秒内两下 = 空音）、Shift+空格三连、⌫ 清字 / 合并、Tab / 方向键换格、Enter / Esc 退出；
+ * 输入法正在拼字时（isComposing / keyCode 229）这些键一概不接，交给输入法。规则见 design/DESIGN_v32.md 第 3 节。
+ */
+function SquareEditor({ focus, global, beat, box, text }: { focus: FlowFocus; global: number; beat: number; box: number; text: string }) {
+  const { store } = useServices();
+  const input = useRef<HTMLInputElement>(null);
+  const tip = useRef<HTMLDivElement>(null);
+  const composing = useRef(false);
+  const rest = focus.rest !== null;
+  const off = focus.abs % TICKS_PER_BEAT;
+  const len = rest ? focus.rest! : box;
+  // 每次光标落到（或重新点到）一个方格都把焦点放回输入框
+  useLayoutEffect(() => {
+    input.current?.focus({ preventScroll: true });
+  }, [focus]);
+  // 桌面上气泡放在方格下面，下面放不下就翻到上面（手机上 CSS 固定在底部）
+  useLayoutEffect(() => {
+    const el = tip.current;
+    if (!el) return;
+    el.classList.remove('up');
+    if (window.innerWidth > 600 && el.getBoundingClientRect().bottom > window.innerHeight - 8) el.classList.add('up');
+  }, [focus]);
+  const take = (el: HTMLInputElement) => {
+    const v = el.value;
+    el.value = '';
+    if (v) store.typeSquare(v);
+  };
+  const keep = (e: React.PointerEvent | React.MouseEvent) => e.preventDefault();
+  const act = (label: string, keys: React.ReactNode, name: string, disabled: boolean, run: () => void) => (
+    <button className="act" data-role="square-action" data-act={name} disabled={disabled} onPointerDown={keep} onMouseDown={keep} onClick={run}>
+      <b>{label}</b>
+      <span>{keys}</span>
+    </button>
+  );
+  return (
+    <>
+      <input
+        ref={input}
+        className="sq-input"
+        data-role="square-input"
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        enterKeyHint="done"
+        aria-label={`${cellName(global, beat)}${rest ? '的空音' : `的 ${squareName(box)} 方格`}：打字写进这一格；空格一分二，Shift+空格三连，两下空格变空音，退格合并`}
+        style={{ '--t': off, '--l': len } as Css}
+        onKeyDown={(e) => {
+          const ne = e.nativeEvent;
+          e.stopPropagation();
+          if (ne.isComposing || ne.keyCode === 229 || composing.current) return;
+          const k = e.key;
+          const stop = () => e.preventDefault();
+          if (e.metaKey || e.ctrlKey) {
+            const low = k.toLowerCase();
+            if (low === 'z') {
+              stop();
+              if (e.shiftKey) store.redo();
+              else store.undo();
+            } else if (low === 'y') {
+              stop();
+              store.redo();
+            }
+            return;
+          }
+          if (k === ' ' || k === 'Spacebar') {
+            stop();
+            if (e.shiftKey) store.splitFocus(3);
+            else store.spaceKey(ne.timeStamp);
+            return;
+          }
+          if (k === 'Shift') return;
+          store.resetSpace();
+          if (k === 'Backspace' || k === 'Delete') {
+            stop();
+            store.backspaceSquare();
+          } else if (k === 'Tab' || k === 'ArrowRight' || k === 'ArrowLeft') {
+            stop();
+            store.moveSquare(k === 'ArrowLeft' || (k === 'Tab' && e.shiftKey) ? -1 : 1);
+          } else if (k === 'Enter' || k === 'Escape') {
+            stop();
+            store.endFlowEdit();
+          } else if (k === '-' || k === '=') {
+            stop();
+            store.extendCursor(k === '-' ? 1 : -1);
+          }
+        }}
+        onCompositionStart={() => {
+          composing.current = true;
+          store.resetSpace();
+        }}
+        onCompositionEnd={(e) => {
+          composing.current = false;
+          take(e.currentTarget);
+        }}
+        onChange={(e) => {
+          if (composing.current || (e.nativeEvent as InputEvent).isComposing) return;
+          take(e.currentTarget);
+        }}
+        onBlur={() => {
+          // 点到别处（不是另一个方格的输入框、不是气泡按钮）就退出改字
+          setTimeout(() => {
+            if ((document.activeElement as HTMLElement | null)?.dataset?.role !== 'square-input') store.endFlowEdit();
+          }, 0);
+        }}
+      />
+      <div ref={tip} className="sq-tip" data-role="square-tip" role="status" onClick={(e) => e.stopPropagation()} onPointerDown={keep}>
+        {rest ? (
+          <>
+            <b>{cellName(global, beat)} · 空音</b>
+            <span className="k">这里不唱。在这里打字 = 放回一个方格并写上字{len < TICKS_PER_BEAT ? '；按退格和旁边那一半合并' : ''}。</span>
+          </>
+        ) : (
+          <>
+            <b>
+              {cellName(global, beat)} · {squareName(box)} 方格
+            </b>
+            <span className="k">打字写进这一格（一格一个字，再打一个就替换）{text ? `；分开后「${text}」留在左边` : ''}</span>
+          </>
+        )}
+        <div className="acts">
+          {act('一分二', <span className="kbd">空格</span>, 'split', rest || !canSplit(box, 2), () => store.splitFocus(2))}
+          {act('三连', <><span className="kbd">Shift</span><span className="kbd">空格</span></>, 'triplet', rest || !canSplit(box, 3), () => store.splitFocus(3))}
+          {act('空音', <><span className="kbd">空格</span>×2</>, 'rest', rest, () => store.restFocus())}
+          {act('合并', <span className="kbd">退格</span>, 'merge', len >= TICKS_PER_BEAT || (!rest && !!text), () => store.backspaceSquare())}
+        </div>
+        <span className="k">
+          <span className="kbd">Tab</span> 下一格 · <span className="kbd">Enter</span> / <span className="kbd">Esc</span> 结束 · <span className="kbd">Ctrl</span>+<span className="kbd">Z</span> 撤销（每一下都算一步）
+        </span>
+      </div>
+    </>
+  );
+}
+
+/** 第 1 步的三连标记：整拍三连（落点只在 0 / 16 / 32）标整拍；有 8 / 16（前半）、32 / 40（后半）落点的半拍标那半拍 */
+function flowTriplets(offs: number[]): { full: boolean; h1: boolean; h2: boolean } {
+  const full = offs.some((o) => o === 16 || o === 32) && offs.every((o) => o === 0 || o === 16 || o === 32);
+  if (full) return { full, h1: false, h2: false };
+  return { full, h1: offs.some((o) => o === 8 || o === 16), h2: offs.some((o) => o === 32 || o === 40) };
+}
+
 /** 一段拖音浅底在这一格里的位置（左右各留 1px 缝；接着下一格的那头盖住格线） */
 function tintStyle(s: number, e: number, head: boolean, tail: boolean, c0: number): Css {
   const pct = (t: number) => ((t - c0) / TICKS_PER_BEAT) * 100;
@@ -143,6 +291,8 @@ interface CellProps {
   holdTip: EditorState['holdTip'];
   /** 正在拖长度的字（预览经过这一格时画出来） */
   stretch: Stretch | null;
+  /** 第 1 步光标在这一格里的方格 / 空音 */
+  flowFocus: FlowFocus | null;
 }
 
 const Cell = memo(function Cell(p: CellProps) {
@@ -157,7 +307,7 @@ const Cell = memo(function Cell(p: CellProps) {
   if (p.selected) cls.push('sel');
   if (p.solo) cls.push('solo');
   if (p.nowCell) cls.push('now');
-  if (p.editing) cls.push('editing');
+  if (p.editing || p.flowFocus) cls.push('editing');
   if (p.holdTip?.key === c.key) cls.push('hold-hit');
 
   const tickAt = (e: { clientX: number }, el: HTMLElement) => {
@@ -167,9 +317,14 @@ const Cell = memo(function Cell(p: CellProps) {
   };
 
   const onCellClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (p.step === 1) store.flowClick(c0 + tickAt(e, e.currentTarget));
+    if (p.step === 1) store.flowPick(c0 + tickAt(e, e.currentTarget));
     else store.clickCell(c.global, c.beat);
   };
+  const ff = p.flowFocus;
+  const flow = p.step === 1;
+  const trips = flow ? flowTriplets(c.words.map((w) => w.off)) : null;
+  const sqBox = (w: WordView) => Math.min(w.len, TICKS_PER_BEAT - w.off);
+  const focusWord = ff && ff.rest === null ? c.words.find((w) => w.abs === ff.abs) : undefined;
 
   // 把手：放在字结束的地方（字没拖长 = 字的右边；拖长了 = 浅底最后一段的右边）
   const grip = (w: WordView) => (
@@ -209,12 +364,26 @@ const Cell = memo(function Cell(p: CellProps) {
           <Icon.lock />
         </span>
       )}
-      {c.words.length > 0 && c.mode === 't3' && (
+      {flow && trips!.full && (
         <span className="trip" data-role="triplet-mark">
           <b>3</b>
         </span>
       )}
-      {c.words.length > 0 && c.mode === 't6' && (
+      {flow &&
+        (['h1', 'h2'] as const).map(
+          (h) =>
+            trips![h] && (
+              <span key={h} className={`trip half${h === 'h2' ? ' h2' : ''}`} data-role="triplet-mark">
+                <b>3</b>
+              </span>
+            ),
+        )}
+      {!flow && c.words.length > 0 && c.mode === 't3' && (
+        <span className="trip" data-role="triplet-mark">
+          <b>3</b>
+        </span>
+      )}
+      {!flow && c.words.length > 0 && c.mode === 't6' && (
         <>
           <span className="trip half" data-role="triplet-mark">
             <b>3</b>
@@ -238,6 +407,34 @@ const Cell = memo(function Cell(p: CellProps) {
           {t.tail && grip(wordById(t.wordId) ?? holdWord(t))}
         </span>
       ))}
+      {flow &&
+        c.words.map((w) => {
+          const box = sqBox(w);
+          const k = ['sq', w.text ? 'filled' : 'empty'];
+          if (w.final) k.push('rp');
+          if (focusWord === w) k.push('focus');
+          if (box <= 6) k.push('w32');
+          return (
+            <span
+              key={`sq${w.id}`}
+              className={k.join(' ')}
+              data-role="square"
+              data-square={w.text ? 'filled' : 'empty'}
+              data-abs={w.abs}
+              data-tick={w.off}
+              data-box={box}
+              data-focus={focusWord === w ? '1' : undefined}
+              style={{ '--t': w.off, '--l': box, '--h': w.hue ?? undefined, '--cw': w.text ? `${wordSize(w.box, p.sizing.cell, p.sizing.base).font}px` : '0px' } as Css}
+            >
+              {focusWord === w && <span className="caret" aria-hidden="true"></span>}
+            </span>
+          );
+        })}
+      {flow && ff && ff.rest !== null && (
+        <span className="rest focus" data-role="rest" data-focus="1" data-abs={ff.abs} data-tick={ff.abs % TICKS_PER_BEAT} data-len={ff.rest} style={{ '--t': ff.abs % TICKS_PER_BEAT, '--l': ff.rest } as Css}>
+          {(ff.rest / TICKS_PER_BEAT) * p.sizing.cell >= 34 && <em>空音</em>}
+        </span>
+      )}
       {pv && (
         <span className={`tint preview${pv.s === stretch!.abs ? '' : ' cont'}${pv.e === stretch!.end ? '' : ' more'}`} data-role="hold-preview" data-s={pv.s} data-e={pv.e} style={tintStyle(pv.s, pv.e, pv.s === stretch!.abs, pv.e === stretch!.end, c0)}></span>
       )}
@@ -266,10 +463,10 @@ const Cell = memo(function Cell(p: CellProps) {
             data-locked={w.locked ? '1' : undefined}
             style={{ '--t': w.off, '--l': w.box, '--fs': `${size.font}px`, '--h': w.hue ?? undefined } as Css}
             onClick={(e) => {
-              // 第 1 步点字：选中它（拖长、按 - / ⌫ 用）；第 2 步字不接点击，点的是整格
+              // 第 1 步点字 = 点它的方格（进入改字）；第 2 步字不接点击，点的是整格
               if (p.step !== 1) return;
               e.stopPropagation();
-              store.focusWord(w.abs);
+              store.flowPick(w.abs);
             }}
           >
             {w.text ? (
@@ -288,6 +485,7 @@ const Cell = memo(function Cell(p: CellProps) {
           </span>
         );
       })}
+      {flow && ff && (focusWord || ff.rest !== null) && <SquareEditor focus={ff} global={c.global} beat={c.beat} box={focusWord ? sqBox(focusWord) : 0} text={focusWord?.text ?? ''} />}
       {p.editing && <CellEditor global={c.global} beat={c.beat} initial={c.words.map((w) => w.text).join('')} />}
       {p.holdTip?.key === c.key && (
         <div className="hold-tip" role="status" data-role="hold-only-tip" onClick={(e) => e.stopPropagation()}>
@@ -385,6 +583,7 @@ const Row = memo(function Row({ row, state, sizing, nowAbs, nowKey, selected, ro
             nowCell={nowKey === c.key}
             holdTip={state.holdTip}
             stretch={rowStretch && rowStretch.abs < c0 + TICKS_PER_BEAT && rowStretch.end > c0 ? rowStretch : null}
+            flowFocus={state.step === 1 && state.flowEdit && state.flowEdit.abs >= c0 && state.flowEdit.abs < c0 + TICKS_PER_BEAT ? state.flowEdit : null}
           />
         );
       })}

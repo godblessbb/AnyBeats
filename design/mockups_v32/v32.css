@@ -1,0 +1,106 @@
+/* AnyBeats v3.2 视觉稿：在 v3 / v3b / v3.1 样式上（只读引用，不改）只改第 1 步「铺 flow」：
+ * 1. 方格：有 flow 的地方画一个占位方格（证明这里有一个字）；空的 = 实线边 + 底色，写了字的 = 细边 + 字
+ * 2. 空音：不画方格，只是空白；光标停在空音上时画一圈强调色虚线
+ * 3. 点方格进入改字：强调色边 + 光晕 + 光标；下面一个小气泡写按键（手机上贴底部）
+ * 4. 「清空全部 flow…」在第 1 步工具条上，就地二次确认（和「清空当前文字…」同一种做法）
+ * 颜色只用已有 token：方格边 / 底用 App 里已有的 --slot-line / --slot-line-soft / --slot-bg（v3 字位框的颜色），强调色朱橙。
+ */
+
+:root { --slot-line: #6B7280; --slot-line-soft: #C9CDD3; --slot-bg: #FFFFFF; --a-error: #DC2626; }
+@media (prefers-color-scheme: dark) { :root { --slot-line: #A1A1A8; --slot-line-soft: #4A4A4F; --slot-bg: #1C1C1E; --a-error: #F87171; } }
+
+/* ---------- 方格 ---------- */
+.cell .sq, .mb .sq {
+  position: absolute; top: var(--slot-top); height: var(--slot-h); z-index: 2; box-sizing: border-box;
+  left: calc(var(--t) / 48 * 100% + 2px); width: calc(var(--l) / 48 * 100% - 4px);
+  border-radius: 5px; display: flex; align-items: center; overflow: hidden;
+}
+.sq.empty { border: 1.5px solid var(--slot-line); background: color-mix(in srgb, var(--slot-line) 16%, var(--slot-bg)); }
+.sq.filled { border: 1px solid color-mix(in srgb, var(--slot-line) 70%, transparent); background: var(--slot-bg); }
+.sq.w32 { border-radius: 3px; }
+.sq .ch { font-size: var(--fs, var(--ch)); line-height: 1; padding-left: 4px; font-weight: 500; color: var(--ab-text); white-space: nowrap; }
+.sq.rp .ch { color: hsl(var(--h) var(--ink-s) var(--ink-l)); font-weight: 700; }
+.sq.rp.filled { border-color: hsl(var(--h) 45% 55%); }
+.cell.painted .sq.filled { background: color-mix(in srgb, var(--slot-bg) 70%, transparent); }
+/* 光标所在方格：强调色边 + 一圈浅光晕 + 闪烁光标（截图里不动） */
+.sq.focus { border: 2px solid var(--ab-accent); box-shadow: 0 0 0 3px var(--ab-accent-soft); overflow: visible; z-index: 4; }
+.sq .caret { width: 2px; height: 60%; background: var(--ab-accent); margin-left: 3px; flex: none; }
+.sq.w32 .caret { margin-left: 1px; }
+.sq .ch + .caret { margin-left: 1px; }
+
+/* ---------- 空音：没有方格 ---------- */
+.cell .rest, .mb .rest { position: absolute; top: var(--slot-top); height: var(--slot-h); z-index: 1; left: calc(var(--t) / 48 * 100% + 2px); width: calc(var(--l) / 48 * 100% - 4px); pointer-events: none; }
+.rest.focus { border: 1.5px dashed var(--ab-accent); border-radius: 5px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; }
+.rest.focus em { font-style: normal; font-size: 11px; color: var(--ab-accent-text); font-weight: 600; white-space: nowrap; }
+
+/* 拖过拍线的浅底：从格线接着铺（v3.1 画法），左边不留缝 */
+.cell .tint { position: absolute; top: var(--slot-top); height: var(--slot-h); border-radius: 5px; z-index: 1; pointer-events: none; background: color-mix(in srgb, var(--ab-text) 9%, transparent); }
+.cell .tint.blank { background: color-mix(in srgb, var(--ab-text) 7%, transparent); }
+
+/* ---------- 改字气泡 ---------- */
+.cell.editing { z-index: 5; }
+.sq-tip { position: absolute; z-index: 8; left: 0; top: calc(100% + 4px); width: 318px; background: var(--ab-surface); border: 1px solid var(--ab-line-3); border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .16); padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; font-size: 12px; color: var(--ab-text); line-height: 1.5; cursor: default; }
+.sq-tip.up { top: auto; bottom: calc(100% + 4px); }
+.sq-tip b { font-size: 13px; }
+.sq-tip .k { color: var(--ab-text-muted); }
+.sq-tip .acts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.sq-tip .act { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 6px 2px 5px; border: 1px solid var(--ab-line-2); border-radius: 8px; background: var(--ab-surface-2); color: var(--ab-text); font: inherit; }
+.sq-tip .act b { font-size: 12px; font-weight: 600; }
+.sq-tip .act span { display: flex; gap: 2px; align-items: center; font-size: 10px; color: var(--ab-text-muted); white-space: nowrap; }
+.sq-tip .act.off { opacity: .45; }
+.kbd { display: inline-block; min-width: 18px; padding: 0 4px; border: 1px solid var(--ab-line-3); border-bottom-width: 2px; border-radius: 4px;
+  font-family: var(--a-mono); font-size: 11px; line-height: 16px; text-align: center; color: var(--ab-text); background: var(--ab-surface); }
+
+/* ---------- 工具条：清空全部 flow ---------- */
+.tools .spacer { flex: 1; }
+.btn.danger { color: var(--a-error); }
+.btn.danger svg { width: 14px; height: 14px; }
+.btn.danger.solid { background: var(--a-error); border-color: var(--a-error); color: var(--ab-surface); font-weight: 600; }
+.clear-confirm { display: flex; align-items: center; gap: 6px; padding: 3px 4px 3px 10px; border: 1.5px solid var(--ab-warn-line); border-radius: 9px; background: var(--ab-warn-soft); }
+.clear-confirm .q { font-size: 12px; color: var(--ab-text); line-height: 1.4; }
+.clear-confirm .q b { font-weight: 700; }
+
+/* ---------- 右栏 ---------- */
+.mb { position: relative; height: 30px; width: 114px; border: 1px solid var(--grid); border-radius: 5px; background: var(--ab-surface); flex: none;
+  --slot-top: 4px; --slot-h: 20px; --ch: 13px; --fs: 13px; }
+.mb .tk { position: absolute; bottom: 0; width: 1px; height: 5px; background: var(--tick); }
+.mb .trip { top: 0; height: 4px; }
+.mb .trip b { font-size: 9px; top: -6px; line-height: 10px; }
+.mb .sq .ch { padding-left: 3px; }
+.lg-row { display: flex; align-items: center; gap: 10px; }
+.lg-row + .lg-row { margin-top: 8px; }
+.lg-row .note { margin: 0; }
+.keylist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--ab-text); }
+.keylist li { display: flex; gap: 8px; align-items: baseline; }
+.keylist .keys { flex: none; width: 100px; white-space: nowrap; display: flex; gap: 2px; align-items: center; color: var(--ab-text-muted); }
+
+/* 空作品引导 */
+.empty-tip { margin: 10px 0 0; border: 1.5px dashed var(--ab-line-3); border-radius: 10px; padding: 10px 12px; font-size: 12px; color: var(--ab-text-muted); line-height: 1.6; background: var(--ab-surface); }
+.empty-tip b { color: var(--ab-text); font-weight: 600; }
+
+/* 提示条 */
+.toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 50; max-width: min(620px, calc(100vw - 24px)); background: var(--ab-text); color: var(--ab-surface);
+  border-radius: 10px; padding: 9px 14px; font-size: 13px; line-height: 1.5; box-shadow: 0 8px 24px rgba(0, 0, 0, .2); display: flex; gap: 10px; align-items: center; }
+.toast.warn { background: var(--ab-surface); color: var(--ab-text); border: 1.5px solid var(--ab-warn-line); }
+.toast.warn b { color: var(--ab-warn-text); }
+
+@media (max-width: 600px) {
+  .bar2 .steps button { padding: 0 9px; font-size: 12px; height: 30px; }
+  .tools { flex-wrap: wrap; row-gap: 6px; }
+  .tools .spacer { display: none; }
+  .tools .btn.danger, .clear-confirm { margin-left: auto; }
+  .clear-confirm { width: 100%; box-sizing: border-box; }
+  .clear-confirm .q { flex: 1; font-size: 11px; }
+  .sq .ch { padding-left: 2px; }
+  .sq.focus { box-shadow: 0 0 0 2px var(--ab-accent-soft); }
+  .rest.focus em { font-size: 10px; }
+  .sq-tip { position: fixed; left: 8px !important; right: 8px; top: auto; bottom: 64px; width: auto; }
+  .toast { bottom: 70px; width: calc(100vw - 16px); font-size: 12px; }
+  .toast + .m-anno, body:has(.sq-tip) .toast { bottom: auto; top: 8px; }
+  .m-anno { position: fixed; left: 8px; right: 8px; bottom: 64px; z-index: 9; background: var(--ab-surface-2); box-shadow: 0 6px 18px rgba(0, 0, 0, .12); padding: 14px 10px 8px; }
+  .m-anno p { font-size: 11px; line-height: 1.5; color: var(--ab-text); }
+  .m-anno p b { font-weight: 600; }
+  .m-anno .anno-b { font-size: 10px; line-height: 16px; top: -9px; }
+}
+@media (min-width: 601px) { .m-anno { display: none; } }
