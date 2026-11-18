@@ -1,0 +1,131 @@
+/* AnyBeats v3.4 稿子新增样式。
+ * app.css / index.css 是 src/App.css / src/index.css 的逐字节拷贝（e612881），这里只加 v3.4 新出现的东西，
+ * 颜色一律用 app.css 里已有的 token（强调色朱橙、--ab-*、--slot-*、规则色相派生的 --tint / --chip / --ink / --sw），不加新配色。
+ */
+
+/* ---------- 模式提示：工具条最左边一颗，永远看得见「手里拿的是什么」 ---------- */
+.mode {
+  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px; flex: none;
+  border-radius: 9px; border: 1px solid var(--ab-line-2); background: var(--ab-surface);
+  font-size: 12px; color: var(--ab-text); white-space: nowrap;
+}
+.mode svg { width: 14px; height: 14px; flex: none; }
+.mode b { font-weight: 600; }
+.mode .d { color: var(--ab-text-muted); }
+.mode .btn { height: 24px; padding: 0 8px; font-size: 12px; margin-right: -6px; }
+/* 涂色：底色 = 这种颜色的格子底色，2px 色块色描边，字用这种颜色的深色 —— 和表格里涂好的格子同一套颜色 */
+.mode.paint { border: 2px solid hsl(var(--h) var(--sw-s) var(--sw-l)); background: hsl(var(--h) var(--tint-s) var(--tint-l)); color: hsl(var(--h) var(--ink-s) var(--ink-l)); }
+.mode.paint .d { color: var(--ab-text); }
+.mode.erase { border: 2px dashed var(--ab-line-3); }
+/* 选格子（给锁定 / AI 用）：强调色，和选中框同色 */
+.mode.select { border: 2px solid var(--ab-accent); background: var(--ab-accent-soft); color: var(--ab-accent-text); }
+.mode.select .d { color: var(--ab-text); }
+
+/* 涂色中：整张表外面一圈这种颜色；指针变成画笔（data: 图标，不发请求） */
+.sheet.painting { outline: 2px solid hsl(var(--h) var(--sw-s) var(--sw-l)); outline-offset: 3px; border-radius: 8px; }
+.sheet.painting .cell { cursor: url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2224%22 height=%2224%22 viewBox=%220 0 24 24%22><path d=%22M14 4l6 6-8.5 8.5-6-6z%22 fill=%22white%22 stroke=%22black%22 stroke-width=%221.5%22/><path d=%22M5.5 12.5l6 6c-1.5 2.5-4.5 3.5-8 3 .3-3.4 1-6.5 2-9z%22 fill=%22black%22/></svg>') 3 21, crosshair; }
+.sheet.selecting .cell { cursor: cell; }
+/* 拖着还没松手：经过的格子先铺上这种颜色 + 虚线框（松手才算一步） */
+.cell.pv { background: hsl(var(--h) var(--tint-s) var(--tint-l)); }
+.cell.pv .sq.filled { background: color-mix(in srgb, var(--slot-bg) 70%, transparent); }
+.cell.pv::after { content: ''; position: absolute; inset: 2px; border: 2px dashed hsl(var(--h) var(--sw-s) var(--sw-l)); border-radius: 5px; pointer-events: none; z-index: 3; }
+/* 画面里画出来的画笔指针（截图里看不到真光标，所以画一个） */
+.brush-pt { position: absolute; z-index: 9; width: 26px; height: 26px; pointer-events: none; transform: translate(-3px, -21px); color: var(--ab-text); filter: drop-shadow(0 1px 1px rgba(0, 0, 0, .25)); }
+.brush-pt svg { width: 26px; height: 26px; }
+
+/* 色块：拿起来的那一块上面画一支画笔；橡皮 = 虚线框 + 「擦」 */
+.sw { position: relative; display: grid; place-items: center; }
+.sw svg { width: 16px; height: 16px; color: var(--ab-surface); }
+.sw.erase { background: transparent; border: 1.5px dashed var(--ab-line-3); color: var(--ab-text-muted); font-size: 12px; }
+.sw.erase.on { border-style: solid; border-color: var(--ab-text); color: var(--ab-text); }
+.swatches .sw-cap { font-size: 11px; color: var(--ab-text-muted); width: 100%; }
+
+/* 侧栏：十三辙小字、辙表、「接入后」框 */
+.zhe { font-size: 12px; color: var(--ab-text-muted); }
+.zhe b { color: var(--ab-text); font-weight: 600; }
+.zhe-tab { display: grid; grid-template-columns: 44px 1fr 52px; gap: 2px 8px; font-size: 12px; line-height: 1.55; }
+.zhe-tab b { font-weight: 600; color: var(--ab-text); }
+.zhe-tab span { font-family: var(--a-mono); color: var(--ab-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zhe-tab i { font-style: normal; color: var(--ab-text-muted); white-space: nowrap; }
+.zhe-tab .on b, .zhe-tab .on span, .zhe-tab .on i { color: var(--ab-accent-text); }
+.seg.two { grid-template-columns: repeat(2, 1fr); }
+.later { position: relative; border: 1.5px dashed var(--ab-line-3); border-radius: 10px; padding: 14px 10px 10px; display: flex; flex-direction: column; gap: 8px; }
+.later-tag { position: absolute; left: 10px; top: -9px; font-size: 11px; line-height: 16px; padding: 0 6px; border-radius: 4px; background: var(--ab-text); color: var(--ab-surface); font-weight: 600; }
+.chk { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ab-text); }
+.chk i { width: 14px; height: 14px; border-radius: 4px; border: 1.5px solid var(--ab-line-3); flex: none; }
+.chk.on i { background: var(--ab-accent); border-color: var(--ab-accent); }
+
+/* 迁移横幅（旧作品打开时）：和「清空全部 flow…」就地确认同一种样子 */
+.mig { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; margin: 2px 0 10px; border: 1.5px solid var(--ab-warn-line); border-radius: 9px; background: var(--ab-warn-soft); font-size: 12px; line-height: 1.5; color: var(--ab-text); }
+.mig .q { flex: 1 1 320px; min-width: 0; }
+.mig .q b { font-weight: 600; }
+
+/* 十三辙前后对比：两张同一段的表并排（手机上下） */
+.cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.cmp .sheet { --rh: 40px; --lab: 0px; }
+.cmp .sh-head { position: static; }
+.cmp .lab, .cmp .lab-h { display: none; }
+.cmp-h { display: flex; align-items: baseline; gap: 8px; padding: 0 0 6px; flex-wrap: wrap; }
+.cmp-h b { font-size: 13px; font-weight: 600; }
+.cmp-h .cnt { font-size: 12px; color: var(--ab-text-muted); }
+.cmp-h .cnt.bad { color: var(--ab-warn-text); font-weight: 600; }
+.cmp-h .cnt.good { color: var(--ab-ok-text); font-weight: 600; }
+.cmp-note { font-size: 11px; color: var(--ab-text-muted); margin: 8px 0 0; }
+
+
+/* ---------- 层级修正（现网 v3.2 就有的问题，写词页一直用方格画法后天天碰到） ----------
+ * App.css 第 13 节 .sheet[data-step="1"] .wd { z-index: 4 } 和粘住的列头 .sh-head { z-index: 4 } 一样高，字在 DOM 后面，
+ * 往上滚时第 1 步的字会压在列头上（手机上尤其明显）。工具条 > 列头 > 行头 > 字，各抬一级；
+ * 列头粘住的位置 = 工具条的实际高度（桌面 50px、手机 56px：手机上「完成」按钮要 36px 高）。 */
+.app[data-tab="write"] .tools { z-index: 7; min-height: 50px; }
+.app[data-tab="write"] .sh-head { z-index: 6; top: 50px; }
+.app[data-tab="write"] .rh { z-index: 5; }
+
+/* ---------- 歌词页 ---------- */
+.app[data-tab="lyrics"] .lyr-side .pn { gap: 12px; }
+.lyr { max-width: 680px; margin: 0 auto; padding: 4px 0 50vh; --lf: 20px; }
+.lyr[data-size="s"] { --lf: 16px; }
+.lyr[data-size="l"] { --lf: 24px; }
+.lyr-sec + .lyr-sec { margin-top: 16px; }
+.lyr-sh { display: flex; align-items: baseline; gap: 8px; padding: 4px 0 4px 44px; }
+.lyr-sh b { font-size: 13px; font-weight: 600; color: var(--ab-text); }
+.lyr-sh span { font-size: 12px; color: var(--ab-text-muted); }
+.lyr-line { display: grid; grid-template-columns: 36px minmax(0, 1fr); column-gap: 8px; align-items: baseline; padding: 1px 10px 1px 0; border-radius: 8px; cursor: pointer; }
+.lyr-line .ln { font-family: var(--a-mono); font-size: 11px; color: var(--ab-text-faint); text-align: right; }
+.lyr-line .lt { font-size: var(--lf); line-height: 1.7; color: var(--ab-text); overflow-wrap: anywhere; }
+.lyr-line .lr { color: hsl(var(--h) var(--ink-s) var(--ink-l)); font-weight: 700; }
+.lyr-line .gap { display: inline-block; width: .5em; }
+.lyr-line .blank { color: var(--ab-text-faint); }
+.lyr-line.now { background: var(--ab-accent-soft); box-shadow: inset 3px 0 0 var(--ab-accent); }
+.lyr-line.now .ln { color: var(--ab-accent-text); font-weight: 700; }
+.lyr-line .now-ch { text-decoration: underline 2px var(--ab-accent); text-underline-offset: 6px; }
+.lyr-empty { padding: 2px 0 2px 44px; font-size: 12px; color: var(--ab-text-muted); }
+.legend-row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ab-text); }
+.legend-row i { width: 18px; height: 12px; border-radius: 3px; background: hsl(var(--h) var(--sw-s) var(--sw-l)); flex: none; }
+.legend-row b { font-weight: 700; color: hsl(var(--h) var(--ink-s) var(--ink-l)); }
+.legend-row span { margin-left: auto; color: var(--ab-text-muted); font-size: 11px; }
+
+@media (max-width: 600px) {
+  .mode { height: 42px; padding: 0 3px 0 8px; }
+  .app[data-tab="write"] .tools { min-height: 56px; }
+  .app[data-tab="write"] .sh-head { top: 56px; }
+  .mode .btn { height: 36px; padding: 0 12px; margin-right: 0; }
+  .mode .d { display: none; }
+  .app[data-tab="lyrics"] .tools { gap: 6px; }
+  .lyr { --lf: 17px; padding-bottom: 60vh; }
+  .lyr[data-size="s"] { --lf: 15px; }
+  .lyr[data-size="l"] { --lf: 20px; }
+  .lyr-sh { padding-left: 30px; }
+  .lyr-line { grid-template-columns: 24px minmax(0, 1fr); column-gap: 6px; padding-right: 6px; }
+  .lyr-line .ln { font-size: 10px; }
+  .lyr-empty { padding-left: 30px; }
+  .cmp { grid-template-columns: 1fr; gap: 10px; }
+  .cmp .sheet { --rh: 30px; }
+  .mig { padding: 6px 8px; }
+  .mig .q { flex-basis: 100%; }
+  .drawer .dh.painting { background: hsl(var(--h) var(--tint-s) var(--tint-l)); border-radius: 0; margin: 0 -1px; }
+  /* 抽屉头：颜色多了放不下，「上滑展开」只留箭头（按钮的 aria-label 照旧写字）；歌词页颜色是图例，不是按钮，字留着 */
+  .app[data-tab="write"] ~ .drawer .dh .more .mt { display: none; }
+  .drawer .dh .lg { display: flex; gap: 4px; align-items: center; }
+  .drawer .dh .lg i { width: 14px; height: 10px; border-radius: 2px; background: hsl(var(--h) var(--sw-s) var(--sw-l)); }
+}

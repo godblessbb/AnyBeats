@@ -1,0 +1,7 @@
+/* 页面级：iframe 里顶格铺满，不画外框、不留外边距（外框由 Alphie 画） */
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+}
