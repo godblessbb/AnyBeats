@@ -11,7 +11,7 @@
 
 import { allBars, allWords, cellKey, insertWord, setWordText, TICKS_PER_BAR, TICKS_PER_BEAT, totalTicks, wordsInCell, type Grid } from './grid';
 import { checkChanges, lockedWordTicks, type CheckResult, type LockContext } from './locks';
-import { rhymeSlots } from './rhymeRules';
+import { rhymeMatchOf, rhymeSlots } from './rhymeRules';
 
 // ---------- 一次填韵 ----------
 
@@ -30,7 +30,8 @@ export function planRhymeFill(grid: Grid, ctx: LockContext): FillTarget[] {
     for (let beat = 0; beat < 4; beat++) if (wordsInCell(b.data, beat).some((w) => w.text)) written.add(cellKey(b.data.id, beat));
   }
   const locked = lockedWordTicks(grid, ctx);
-  return rhymeSlots(grid, ctx.rules, ctx.paint)
+  // 判押韵的档取改之前的作品（ctx），不从模型输出取（DESIGN_v34 §6）
+  return rhymeSlots(grid, ctx.rules, ctx.paint, rhymeMatchOf(ctx))
     .filter((s) => !written.has(s.key) && !locked.has(s.abs))
     .map((s) => ({ key: s.key, abs: s.abs, want: s.want }));
 }

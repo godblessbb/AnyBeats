@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { BpmDialog } from './components/BpmDialog';
 import { Toast } from './components/Chrome';
 import { ExportPanel } from './components/ExportPanel';
@@ -10,7 +10,8 @@ import { RulePanel, SelChips, Swatches } from './components/RulePanel';
 import { useEditor, useServices } from './components/services';
 import { TopBar } from './components/TopBar';
 import { TrackStrip } from './components/TrackStrip';
-import { ruleName } from './core';
+import { previewRhymeMatch, rhymeMatchOf, ruleName } from './core';
+import { migrationSummary } from './engine/editorStore';
 import { playFrom } from './engine/view';
 import './App.css';
 
@@ -139,6 +140,41 @@ function ClearFlow() {
   );
 }
 
+/**
+ * 旧作品（文件里没有 rhymeMatch）打开时顶上的迁移横幅（DESIGN_v34 §4.7，和「清空全部 flow…」就地确认同一种样子）：
+ * 仍按严格判，写清改成十三辙会少几处「不押」、哪些颜色合并；「改用十三辙」= 一步（可撤销），「先不改」= 写下 strict、以后不再问。
+ */
+function MigrateBanner() {
+  const { store } = useServices();
+  const s = useEditor();
+  // 旧作品（没有 rhymeMatch）而且有颜色规则才出横幅（= store.needsRhymeMigration()）
+  const p = useMemo(() => (s.doc.rhymeMatch === undefined && s.doc.rules.length ? previewRhymeMatch(s.doc.grid, s.doc, rhymeMatchOf(s.doc), 'thirteen') : null), [s.doc]);
+  if (!p) return null;
+  return (
+    <div
+      className="mig"
+      data-role="migrate-banner"
+      role="region"
+      aria-label="判押韵改成十三辙"
+      data-miss-before={p.missBefore}
+      data-miss-after={p.missAfter}
+      data-rules-before={p.rulesBefore}
+      data-rules-after={p.rulesAfter}
+      data-recolor={p.recolorCells}
+    >
+      <span className="q">
+        <b>这个作品按旧规则判押韵（韵母一字不差）。</b>改成十三辙：{migrationSummary(p, s.doc.rules)}。可以撤销。
+      </span>
+      <button className="btn sm primary" data-role="migrate-yes" onClick={() => store.setRhymeMatch('thirteen')}>
+        改用十三辙
+      </button>
+      <button className="btn sm ghost" data-role="migrate-no" onClick={() => store.dismissRhymeMigration()}>
+        先不改
+      </button>
+    </div>
+  );
+}
+
 function Tools({ lockOpen, onToggleLock }: { lockOpen: boolean; onToggleLock: () => void }) {
   const s = useEditor();
   const rule = s.doc.rules.find((r) => r.id === s.activeRule);
@@ -252,6 +288,7 @@ export default function App() {
                 if (!lockOpen) setDrawerOpen(true);
               }}
             />
+            <MigrateBanner />
             <LyricsGrid />
           </main>
           {!mobile && (

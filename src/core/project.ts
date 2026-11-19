@@ -9,6 +9,8 @@
  *        单位 1/16；延音是单独的 hold 片段。datode.com/anybeats/ 11-15 起的作品都是这一版。
  *   3 —— 现在：单位 tick（每拍 48）；字 = 起点 + 长度（拖音就是长度）；段落名英文；
  *        另存押韵规则（rules）、涂色（paint）、锁定（locks）、伴奏信息（beat）。
+ *        v3.4 加可选字段 rhymeMatch（'thirteen' | 'strict'，判押韵的档）：版本号不升；有才写；
+ *        没有 = 旧作品 = 严格韵母（打开时界面上出迁移横幅，点了才改）。
  *
  * 迁移 2 → 3（migrateV2）：1/16 → tick ×12；中文段落名 → 英文；hold 片段并进前一个字的长度（可跨小节）；
  * 空拍片段变成空白；一个片段里多个字按时长平分成几个字。重音这一版不用，丢掉（原文在存储里另有备份键）。
@@ -32,7 +34,7 @@ import {
   type Word,
 } from './grid';
 import { emptyLocks, pruneLocks, type Locks } from './locks';
-import { prunePaint, type Paint, type RhymeRule } from './rhymeRules';
+import { prunePaint, readRhymeMatch, type Paint, type RhymeMatchMode, type RhymeRule } from './rhymeRules';
 import type { Codec } from './history';
 
 export const PROJECT_SCHEMA = 'anybeats.project';
@@ -58,6 +60,8 @@ export interface Doc {
   rules: RhymeRule[];
   paint: Paint;
   locks: Locks;
+  /** 判押韵的档；没有 = 旧作品（按严格判，界面出迁移横幅）。新建作品、示例作品是 'thirteen' */
+  rhymeMatch?: RhymeMatchMode;
 }
 
 export interface Project extends Doc {
@@ -81,6 +85,7 @@ export function createProject(init: Partial<Project> = {}): Project {
     rules: init.rules ?? [],
     paint: init.paint ?? {},
     locks: init.locks ?? emptyLocks(),
+    ...(init.rhymeMatch ? { rhymeMatch: init.rhymeMatch } : {}),
   };
 }
 
@@ -122,6 +127,8 @@ interface ProjectFileV3 {
   rules: RhymeRule[];
   paint: Paint;
   locks: Locks;
+  /** 可选：'thirteen' | 'strict'；没有 = 旧作品 = 严格 */
+  rhymeMatch?: RhymeMatchMode;
 }
 
 export function serializeProject(project: Project): string {
@@ -145,6 +152,7 @@ export function serializeProject(project: Project): string {
     rules: project.rules,
     paint: project.paint,
     locks: project.locks,
+    ...(project.rhymeMatch ? { rhymeMatch: project.rhymeMatch } : {}),
   };
   return JSON.stringify(file);
 }
@@ -221,6 +229,7 @@ function fromV3(file: ProjectFileV3): Project {
         rhyme: !!file.locks.rhyme,
       }
     : emptyLocks();
+  const rhymeMatch = readRhymeMatch(file.rhymeMatch);
   return tidyDoc({
     name: String(file.name ?? ''),
     createdAt: num(file.createdAt, 0),
@@ -232,6 +241,7 @@ function fromV3(file: ProjectFileV3): Project {
     rules,
     paint: isObject(file.paint) ? Object.fromEntries(Object.entries(file.paint).map(([k, v]) => [k, String(v)])) : {},
     locks,
+    ...(rhymeMatch ? { rhymeMatch } : {}),
   });
 }
 
@@ -409,7 +419,7 @@ export const docCodec: Codec<Doc> = {
   split(doc) {
     const skeleton = doc.grid.sections.map((s) => ({ id: s.id, kind: s.kind, label: s.label, bars: s.bars.length }));
     return [
-      JSON.stringify({ bpm: doc.bpm, offsetMs: doc.offsetMs, beat: doc.beat }),
+      JSON.stringify({ bpm: doc.bpm, offsetMs: doc.offsetMs, beat: doc.beat, ...(doc.rhymeMatch ? { rhymeMatch: doc.rhymeMatch } : {}) }),
       JSON.stringify(doc.rules),
       JSON.stringify(doc.paint),
       JSON.stringify(doc.locks),
@@ -418,7 +428,8 @@ export const docCodec: Codec<Doc> = {
     ];
   },
   join(parts, parse) {
-    const meta = parse(parts[0]) as Pick<Doc, 'bpm' | 'offsetMs' | 'beat'>;
+    const meta = parse(parts[0]) as Pick<Doc, 'bpm' | 'offsetMs' | 'beat'> & { rhymeMatch?: unknown };
+    const rhymeMatch = readRhymeMatch(meta.rhymeMatch);
     const skeleton = parse(parts[4]) as { id: string; kind: SectionKind; label: string; bars: number }[];
     let i = 5;
     const sections: Section[] = skeleton.map((s) => ({ id: s.id, kind: s.kind, label: s.label, bars: Array.from({ length: s.bars }, () => parse(parts[i++]) as Bar) }));
@@ -430,6 +441,7 @@ export const docCodec: Codec<Doc> = {
       paint: parse(parts[2]) as Paint,
       locks: parse(parts[3]) as Locks,
       grid: { sections },
+      ...(rhymeMatch ? { rhymeMatch } : {}),
     };
   },
 };

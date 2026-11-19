@@ -40,6 +40,11 @@ v3.1 调整（ct_602f941f：用户要求格子里去掉一个个字框、拖音�
       3. 「细线从字框右边开始」——细线没了，拖音浅底从字的落点开始，改查「浅底从字的落点开始」。
     其余细线断言（经过的格子、跨格接上、折行接到下一行开头、画到字结束、颜色跟字走）原样换成查浅底。
   - check_app_v3 从来没用过「整列」选法按钮、拍头下面的 16 分小格，没有要删的断言。
+
+v3.4 段 1 调整（ct_4f220b40：判押韵改成作品级设置，新建作品 / 示例作品默认十三辙，DESIGN_v34 §4.7、用户 11-18 拍板 Q4=A）：
+  - 场景 5「严格韵母比对」：第一次打开的「夜车」现在是十三辙档（十三辙下「想」iang 押 ang 算押上，本来就不该报）。
+    改成先在右栏「判押韵」点「严格韵母」（data-role=judge-mode 里 data-mode=strict 的按钮），再做原来的操作和断言——
+    断言一个字没改：严格档下「想」标出 iang≠ang、出「对不上本格颜色」提示，改回「方」提示消失。十三辙那一面由 e2e/check_app_v34_rhyme.py 测。
 """
 
 import json
@@ -476,6 +481,11 @@ class Run:
         ctx, page = self.page(browser)
         try:
             sel = '[data-role="row"][data-bar="2"] [data-role="cell"][data-beat="3"] [data-role="word"]'
+            # v3.4：示例作品默认十三辙，先在右栏切到「严格韵母」（见文件开头）
+            page.locator('[data-role="judge-mode"] button[data-mode="strict"]').click()
+            page.wait_for_timeout(80)
+            if page.locator('[data-role="judge-mode"] button[data-mode="strict"]').get_attribute("aria-pressed") != "true":
+                self.fail(tag, "右栏「判押韵」点了「严格韵母」没切过去")
             if page.locator(sel).last.get_attribute("data-rhyme") != "ang":
                 self.fail(tag, "第 2 小节第 4 拍最后一个字应该押 ang（蓝色 i · ang）")
             self.edit_word(page, 2, 3, -1, "想")

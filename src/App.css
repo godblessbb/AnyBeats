@@ -581,3 +581,22 @@ svg { display: block; }
   .rest.focus em { font-size: 10px; }
   .sq-tip { position: fixed; left: 8px !important; right: 8px !important; top: auto; bottom: 64px; width: auto; }
 }
+
+/* ---------- v3.4 段 1：判押韵（十三辙 / 严格韵母）——样式照 design/mockups_v34/v34.css 原样 ---------- */
+/* 侧栏：十三辙小字、辙表 */
+.zhe { font-size: 12px; color: var(--ab-text-muted); }
+.zhe b { color: var(--ab-text); font-weight: 600; }
+.zhe-tab { display: grid; grid-template-columns: 44px 1fr 52px; gap: 2px 8px; font-size: 12px; line-height: 1.55; }
+.zhe-tab b { font-weight: 600; color: var(--ab-text); }
+.zhe-tab span { font-family: var(--a-mono); color: var(--ab-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.zhe-tab i { font-style: normal; color: var(--ab-text-muted); white-space: nowrap; }
+.zhe-tab .on b, .zhe-tab .on span, .zhe-tab .on i, .zhe-tab b.on, .zhe-tab span.on, .zhe-tab i.on { color: var(--ab-accent-text); }
+.seg.two { grid-template-columns: repeat(2, 1fr); }
+/* 迁移横幅（旧作品打开时）：和「清空全部 flow…」就地确认同一种样子 */
+.mig { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; margin: 2px 0 10px; border: 1.5px solid var(--ab-warn-line); border-radius: 9px; background: var(--ab-warn-soft); font-size: 12px; line-height: 1.5; color: var(--ab-text); }
+.mig .q { flex: 1 1 320px; min-width: 0; }
+.mig .q b { font-weight: 600; }
+@media (max-width: 600px) {
+  .mig { padding: 6px 8px; }
+  .mig .q { flex-basis: 100%; }
+}

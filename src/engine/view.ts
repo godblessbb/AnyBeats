@@ -15,6 +15,9 @@ import {
   isCellLocked,
   lockedWordTicks,
   mismatches,
+  RHYME_GROUP_NAMES,
+  groupOfWant,
+  rhymeMatchOf,
   rhymeSlots,
   TICKS_PER_BAR,
   TICKS_PER_BEAT,
@@ -22,6 +25,7 @@ import {
   type BeatMode,
   type CellContent,
   type Doc,
+  type RhymeMatchMode,
   type RhymeRule,
   type SectionKind,
 } from '../core';
@@ -38,8 +42,10 @@ export interface WordView {
   /** 字框那一段多长 */
   box: number;
   text: string;
-  /** 这一位要押的韵母（是韵脚字时） */
+  /** 这一位要押的韵母（是韵脚字时；规则里写的原样） */
   final: string | null;
+  /** 空着的韵脚位显示的占位：十三辙写辙名（言前），严格写韵母 */
+  want: string | null;
   /** 韵脚字的颜色色相 */
   hue: number | null;
   /** 锁定（所在格锁了，或锁了韵脚位置且它是韵脚字） */
@@ -111,15 +117,25 @@ export interface SheetView {
   sections: SectionView[];
   rows: RowView[];
   mismatchCount: number;
+  /** 这张表按哪一档判的押韵 */
+  mode: RhymeMatchMode;
+}
+
+/** 一位韵脚按档怎么写：十三辙写辙名（「言前」，认不出辙就写原样），严格写韵母 */
+export function wantLabel(want: string, mode: RhymeMatchMode): string {
+  if (mode === 'strict') return want;
+  const g = groupOfWant(want);
+  return g ? RHYME_GROUP_NAMES[g] : want;
 }
 
 export function sheetView(doc: Doc): SheetView {
   const bars = allBars(doc.grid);
   const words = allWords(doc.grid);
   const rules = new Map(doc.rules.map((r) => [r.id, r]));
-  const slots = rhymeSlots(doc.grid, doc.rules, doc.paint);
+  const mode = rhymeMatchOf(doc);
+  const slots = rhymeSlots(doc.grid, doc.rules, doc.paint, mode);
   const slotByAbs = new Map(slots.map((s) => [s.abs, s]));
-  const missByAbs = new Map(mismatches(doc.grid, doc.rules, doc.paint).map((m) => [m.abs, m]));
+  const missByAbs = new Map(mismatches(doc.grid, doc.rules, doc.paint, mode).map((m) => [m.abs, m]));
   const locked = lockedWordTicks(doc.grid, doc);
 
   const wordView = new Map<number, WordView>();
@@ -138,6 +154,7 @@ export function sheetView(doc: Doc): SheetView {
       box: boxTicks(w.word, modesOf[w.global][beat]),
       text: w.word.text,
       final: slot ? slot.want : null,
+      want: slot && slot.want ? wantLabel(slot.want, mode) : null,
       hue: rule ? rule.hue : null,
       locked: locked.has(w.abs),
       rhymeLocked: !!slot && doc.locks.rhyme,
@@ -215,7 +232,7 @@ export function sheetView(doc: Doc): SheetView {
     label: s.label,
     rows: rows.filter((r) => r.section === i),
   }));
-  return { sections, rows, mismatchCount: missByAbs.size };
+  return { sections, rows, mismatchCount: missByAbs.size, mode };
 }
 
 // ---------- 显示用小工具 ----------

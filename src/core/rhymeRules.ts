@@ -4,11 +4,13 @@
  * - 涂色以格（某小节第几拍）为单位，一格只能一种颜色；涂新色覆盖旧色。
  * - 押韵落在格内最后 n 个字上：只数字（起点在这一格里的字），不数拖的长度。「路口——」拖一拍仍是双押。
  * - 只有前面拖过来的音、没有新字的格子不能涂色；一个字都没有的格子也不能涂。
- * - 韵母比对默认严格按字面（iang ≠ ang），见 RHYME_MATCH_MODE。
- * - 两种颜色定成同一个韵（同押数、同韵母串）时自动合并：留先建的，另一种的格子全部改成它。
+ * - 判押韵有两档，存在作品里（Doc.rhymeMatch，DESIGN_v34 §4）：十三辙（新作品默认，同辙就算押上）/ 严格韵母（字面一字不差）。
+ *   没有这个字段的旧作品按严格判。所有判押韵的函数都要显式传档，不读任何代码常量。
+ * - 规则里的韵母按用户写的样子存（an / ian / yuan / 言前 都行），判的时候才按档解释。
+ * - 两种颜色定成同一个韵（同押数、每一位同韵——十三辙下是同辙）时自动合并：留先建的，另一种的格子全部改成它。
  */
 
-import { analyze, groupOfFinal, splitSyllable } from './rhyme/syllable';
+import { analyze, groupOfFinal, RHYME_GROUP_NAMES, splitSyllable, type RhymeGroup } from './rhyme/syllable';
 import {
   allBars,
   cellContent,
@@ -34,14 +36,26 @@ export interface RhymeRule {
 /** CellKey（小节 id:拍） → 规则 id */
 export type Paint = Record<string, string>;
 
-export type RhymeMatchMode = 'strict' | 'loose';
-
 /**
- * 韵母比对方式（设置常量）：
- *   strict（默认，11-16 决定）—— 严格按字面：iang ≠ ang，uan ≠ an；
- *   loose —— 按十三辙忽略介音（第一期的口径）。
+ * 判押韵的档（作品级设置，存在 Doc.rhymeMatch）：
+ *   thirteen —— 十三辙：同一辙就算押上（an / ian / uan / üan 都是言前；in 属人辰、ing 属中东，不同辙）；
+ *   strict   —— 严格韵母：字面一字不差（iang ≠ ang，uan ≠ an）。旧作品（文件里没有 rhymeMatch）按这一档。
  */
-export const RHYME_MATCH_MODE: RhymeMatchMode = 'strict';
+export type RhymeMatchMode = 'thirteen' | 'strict';
+
+/** 文件 / 历史里读到的档：只认 'thirteen' | 'strict'，第一期的 'loose' 读作 thirteen，别的值当没有（= 旧作品） */
+export function readRhymeMatch(v: unknown): RhymeMatchMode | undefined {
+  if (v === 'thirteen' || v === 'loose') return 'thirteen';
+  if (v === 'strict') return 'strict';
+  return undefined;
+}
+
+/** 作品实际用的档：没有字段 = 旧作品 = 严格 */
+export function rhymeMatchOf(doc: { rhymeMatch?: RhymeMatchMode }): RhymeMatchMode {
+  return doc.rhymeMatch === 'thirteen' ? 'thirteen' : 'strict';
+}
+
+export const RHYME_MATCH_NAMES: Record<RhymeMatchMode, string> = { thirteen: '十三辙', strict: '严格韵母' };
 
 /** 新建颜色依次用这些色相（两两至少差 25°，都不在 250–310°） */
 export const RULE_HUES = [215, 150, 340, 42, 185, 100, 10, 240];
@@ -81,18 +95,94 @@ export function finalOfChar(ch: string): string | null {
   return s ? literalFinal(s.final) : null;
 }
 
-export function finalsMatch(got: string, want: string, mode: RhymeMatchMode = RHYME_MATCH_MODE): boolean {
-  const a = normalizeFinal(got);
-  const b = normalizeFinal(want);
-  if (!a || !b) return false;
-  if (mode === 'strict') return a === b;
-  const ga = groupOfFinal(a) ?? groupOfFinal(splitSyllable(a).final);
-  const gb = groupOfFinal(b) ?? groupOfFinal(splitSyllable(b).final);
-  return a === b || (!!ga && ga === gb);
+const GROUP_BY_NAME = new Map<string, RhymeGroup>(Object.entries(RHYME_GROUP_NAMES).map(([g, n]) => [n, g as RhymeGroup]));
+
+/** 规则里写的是辙名（「言前」「言前辙」）时返回那一辙，否则 null */
+export function groupOfName(input: string): RhymeGroup | null {
+  return GROUP_BY_NAME.get(input.trim().replace(/辙$/, '')) ?? null;
 }
 
-export function sameRhyme(a: Pick<RhymeRule, 'count' | 'finals'>, b: Pick<RhymeRule, 'count' | 'finals'>): boolean {
-  return a.count === b.count && a.finals.length === b.finals.length && a.finals.every((f, i) => normalizeFinal(f) === normalizeFinal(b.finals[i]) && !!normalizeFinal(f));
+/**
+ * 规范成标准韵母（字面）：本来就是韵母的原样（-i 记作字面 i）；整音节先还原（yuan → üan、wan → uan、iou → iu、zhi → i），
+ * 认不出的原样返回（normalizeFinal 之后的）。
+ */
+export function canonicalFinal(input: string): string {
+  const s = normalizeFinal(input);
+  if (!s) return '';
+  if (groupOfFinal(s)) return literalFinal(s);
+  const f = splitSyllable(s).final;
+  return groupOfFinal(f) ? literalFinal(f) : s;
+}
+
+/** 一位韵脚要押的辙：韵母（an）、整音节（yuan、wan）、辙名（言前 / 言前辙）都认；认不出 / 空的返回 null */
+export function groupOfWant(input: string): RhymeGroup | null {
+  const named = groupOfName(input);
+  if (named) return named;
+  const s = normalizeFinal(input);
+  if (!s) return null;
+  return groupOfFinal(s) ?? groupOfFinal(splitSyllable(s).final);
+}
+
+/** 辙的中文名加「辙」：言前辙；认不出返回 null */
+export function zheName(input: string): string | null {
+  const g = groupOfWant(input);
+  return g ? `${RHYME_GROUP_NAMES[g]}辙` : null;
+}
+
+/** 这一辙包含的韵母（按十三辙表的顺序），给「言前辙 · an ian uan üan 都算」用 */
+export function finalsOfGroup(group: RhymeGroup): string[] {
+  return ZHE_FINALS[group];
+}
+
+const ZHE_FINALS: Record<RhymeGroup, string[]> = {
+  fahua: ['a', 'ia', 'ua'],
+  suobo: ['o', 'e', 'uo'],
+  miexie: ['ie', 'üe', 'ê'],
+  yiqi: ['i', 'ü', '-i', 'er'],
+  gusu: ['u'],
+  huailai: ['ai', 'uai'],
+  huidui: ['ei', 'ui'],
+  yaotiao: ['ao', 'iao'],
+  youqiu: ['ou', 'iu'],
+  yanqian: ['an', 'ian', 'uan', 'üan'],
+  renchen: ['en', 'in', 'un', 'ün'],
+  jiangyang: ['ang', 'iang', 'uang'],
+  zhongdong: ['eng', 'ing', 'ong', 'iong', 'ueng'],
+};
+
+/**
+ * 一个字的韵母 got 押不押规则里写的 want，按作品的档判：
+ *   strict   —— 规范成标准韵母后字面相同（iang ≠ ang）；
+ *   thirteen —— 同一辙（认不出辙时退回字面相同）。
+ * 规则里直接写辙名（「言前」）时两档都按这一辙判——写辙名就是要整辙都算。
+ */
+export function finalsMatch(got: string, want: string, mode: RhymeMatchMode): boolean {
+  const a = canonicalFinal(got);
+  if (!a || !normalizeFinal(want)) return false;
+  const named = groupOfName(want);
+  if (named) return groupOfWant(a) === named;
+  const b = canonicalFinal(want);
+  if (a === b) return true;
+  if (mode === 'strict') return false;
+  const ga = groupOfWant(a);
+  return !!ga && ga === groupOfWant(want);
+}
+
+/** 两个韵母位按档算不算同一个韵（空的不算） */
+function sameFinal(x: string, y: string, mode: RhymeMatchMode): boolean {
+  if (!normalizeFinal(x) || !normalizeFinal(y)) return false;
+  const gx = groupOfName(x);
+  const gy = groupOfName(y);
+  if (gx || gy) return mode === 'thirteen' ? groupOfWant(x) === groupOfWant(y) : gx === gy;
+  if (canonicalFinal(x) === canonicalFinal(y)) return true;
+  if (mode === 'strict') return false;
+  const g = groupOfWant(x);
+  return !!g && g === groupOfWant(y);
+}
+
+/** 两条规则同韵：同押数，每一位同韵（十三辙 = 每一位同辙；严格 = 每一位韵母相同） */
+export function sameRhyme(a: Pick<RhymeRule, 'count' | 'finals'>, b: Pick<RhymeRule, 'count' | 'finals'>, mode: RhymeMatchMode): boolean {
+  return a.count === b.count && a.finals.length === b.finals.length && a.finals.every((f, i) => sameFinal(f, b.finals[i], mode));
 }
 
 // ---------- 规则 ----------
@@ -136,14 +226,14 @@ export interface MergeInfo {
   removed: string;
 }
 
-/** 两种颜色同韵就合并：留先建的（rules 数组里靠前的），另一种的格子全部改成它 */
-export function mergeSameRules(state: RulesState): RulesState & { merged: MergeInfo[] } {
+/** 两种颜色同韵（按档）就合并：留先建的（rules 数组里靠前的），另一种的格子全部改成它 */
+export function mergeSameRules(state: RulesState, mode: RhymeMatchMode): RulesState & { merged: MergeInfo[] } {
   const merged: MergeInfo[] = [];
   let rules = state.rules;
   let paint = state.paint;
   for (let i = 0; i < rules.length; i++) {
     for (let j = i + 1; j < rules.length; j++) {
-      if (!sameRhyme(rules[i], rules[j])) continue;
+      if (!sameRhyme(rules[i], rules[j], mode)) continue;
       const kept = rules[i].id;
       const removed = rules[j].id;
       merged.push({ kept, removed });
@@ -155,21 +245,21 @@ export function mergeSameRules(state: RulesState): RulesState & { merged: MergeI
   return { rules, paint, merged };
 }
 
-export function addRule(state: RulesState, init: { count?: number; finals?: string[]; id?: string } = {}): RulesState & { rule: RhymeRule | null; merged: MergeInfo[] } {
+export function addRule(state: RulesState, mode: RhymeMatchMode, init: { count?: number; finals?: string[]; id?: string } = {}): RulesState & { rule: RhymeRule | null; merged: MergeInfo[] } {
   const rule = createRule(state.rules, init);
   if (!rule) return { ...state, rule: null, merged: [] };
-  const m = mergeSameRules({ rules: [...state.rules, rule], paint: state.paint });
+  const m = mergeSameRules({ rules: [...state.rules, rule], paint: state.paint }, mode);
   return { ...m, rule: m.rules.find((r) => r.id === rule.id) ?? null };
 }
 
-export function updateRule(state: RulesState, id: string, patch: { count?: number; finals?: string[] }): RulesState & { merged: MergeInfo[] } {
+export function updateRule(state: RulesState, id: string, patch: { count?: number; finals?: string[] }, mode: RhymeMatchMode): RulesState & { merged: MergeInfo[] } {
   const rules = state.rules.map((r) => {
     if (r.id !== id) return r;
     const count = patch.count !== undefined ? clampCount(patch.count) : r.count;
     const finals = fitFinals(patch.finals ?? r.finals, count);
     return { ...r, count, finals };
   });
-  return mergeSameRules({ rules, paint: state.paint });
+  return mergeSameRules({ rules, paint: state.paint }, mode);
 }
 
 export function deleteRule(state: RulesState, id: string): RulesState {
@@ -287,7 +377,7 @@ export function rhymeWords(words: Word[], count: number): Word[] {
 }
 
 /** 全曲所有韵脚位置 */
-export function rhymeSlots(grid: Grid, rules: RhymeRule[], paint: Paint, mode: RhymeMatchMode = RHYME_MATCH_MODE): RhymeSlot[] {
+export function rhymeSlots(grid: Grid, rules: RhymeRule[], paint: Paint, mode: RhymeMatchMode): RhymeSlot[] {
   const byId = new Map(rules.map((r) => [r.id, r]));
   const out: RhymeSlot[] = [];
   for (const b of allBars(grid)) {
@@ -315,6 +405,85 @@ export function rhymeSlots(grid: Grid, rules: RhymeRule[], paint: Paint, mode: R
 }
 
 /** 写了字但对不上本格颜色的位置（只提示，不自动改） */
-export function mismatches(grid: Grid, rules: RhymeRule[], paint: Paint, mode: RhymeMatchMode = RHYME_MATCH_MODE): RhymeSlot[] {
+export function mismatches(grid: Grid, rules: RhymeRule[], paint: Paint, mode: RhymeMatchMode): RhymeSlot[] {
   return rhymeSlots(grid, rules, paint, mode).filter((s) => s.ok === false);
+}
+
+// ---------- 切换判押韵的档（DESIGN_v34 §4.6 / §4.7） ----------
+
+export interface RecolorInfo {
+  /** 被并掉的规则 / 并进去的规则 */
+  removed: string;
+  kept: string;
+  /** 被并掉的那条规则涂过的格子数 */
+  cells: number;
+  /** 两条规则色相不同：这些格子会变色 */
+  recolor: boolean;
+}
+
+export interface RhymeMatchChange extends RulesState {
+  mode: RhymeMatchMode;
+  merged: RecolorInfo[];
+}
+
+/** 改档：换档 + 按新档合并同韵颜色（界面上算一步）；规则里的韵母不改写 */
+export function switchRhymeMatch(state: RulesState, mode: RhymeMatchMode): RhymeMatchChange {
+  const m = mergeSameRules(state, mode);
+  const byId = new Map(state.rules.map((r) => [r.id, r]));
+  // 链式合并（C 并进 B、B 并进 A）时以最后留下的那条为准
+  const finalOf = (id: string): string => {
+    const hit = m.merged.find((x) => x.removed === id);
+    return hit ? finalOf(hit.kept) : id;
+  };
+  const merged = m.merged.map(({ removed, kept }) => {
+    const to = finalOf(kept);
+    const cells = Object.values(state.paint).filter((v) => v === removed).length;
+    return { removed, kept: to, cells, recolor: byId.get(removed)?.hue !== byId.get(to)?.hue };
+  });
+  return { mode, rules: m.rules, paint: m.paint, merged };
+}
+
+export interface RhymeMatchPreview {
+  from: RhymeMatchMode;
+  to: RhymeMatchMode;
+  /** 现在 / 改了以后全曲「不押」几处 */
+  missBefore: number;
+  missAfter: number;
+  rulesBefore: number;
+  rulesAfter: number;
+  /** 改了以后颜色有变化的格子数（同色相合并不算） */
+  recolorCells: number;
+  merged: RecolorInfo[];
+  /** 改了以后不再「不押」的位置，按颜色（色相）分：几处、哪几个字（按出现顺序去重） */
+  resolved: { hue: number; count: number; chars: string[] }[];
+}
+
+/** 改档之前先算一遍：「不押」少几处、哪些颜色合并、哪些格子变色（迁移横幅上的数字） */
+export function previewRhymeMatch(grid: Grid, state: RulesState, from: RhymeMatchMode, to: RhymeMatchMode): RhymeMatchPreview {
+  const next = switchRhymeMatch(state, to);
+  const before = mismatches(grid, state.rules, state.paint, from);
+  const after = new Set(mismatches(grid, next.rules, next.paint, to).map((m) => m.abs));
+  const hueOf = new Map(state.rules.map((r) => [r.id, r.hue]));
+  const resolved: RhymeMatchPreview['resolved'] = [];
+  for (const m of before) {
+    if (after.has(m.abs)) continue;
+    const hue = hueOf.get(m.ruleId) ?? 0;
+    let row = resolved.find((x) => x.hue === hue);
+    if (!row) resolved.push((row = { hue, count: 0, chars: [] }));
+    row.count += 1;
+    const ch = Array.from(m.word.text).pop() ?? '';
+    if (ch && !row.chars.includes(ch)) row.chars.push(ch);
+  }
+  resolved.sort((a, b) => b.count - a.count);
+  return {
+    from,
+    to,
+    missBefore: before.length,
+    missAfter: after.size,
+    resolved,
+    rulesBefore: state.rules.length,
+    rulesAfter: next.rules.length,
+    recolorCells: next.merged.filter((m) => m.recolor).reduce((n, m) => n + m.cells, 0),
+    merged: next.merged,
+  };
 }

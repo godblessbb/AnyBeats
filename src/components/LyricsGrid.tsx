@@ -5,6 +5,7 @@ import {
   minCellWidth,
   playheadAt,
   precisionUnit,
+  rhymeMatchOf,
   SECTION_KIND_NAMES,
   SECTION_KINDS,
   squareName,
@@ -12,10 +13,11 @@ import {
   TICKS_PER_BEAT,
   totalTicks,
   wordSize,
+  zheName,
   type SectionKind,
 } from '../core';
 import type { EditorState } from '../engine/editorStore';
-import { cellName, sheetView, type CellView, type RowView, type TintView, type WordView } from '../engine/view';
+import { cellName, sheetView, wantLabel, type CellView, type RowView, type TintView, type WordView } from '../engine/view';
 import { Icon } from './icons';
 import { Menu, type MenuItem } from './Menu';
 import { useEditor, useServices, useTransport } from './services';
@@ -471,9 +473,9 @@ const Cell = memo(function Cell(p: CellProps) {
           >
             {w.text ? (
               <span className="ch">{w.text}</span>
-            ) : w.final ? (
+            ) : w.want ? (
               <span className="ph" data-role="placeholder">
-                {w.final}
+                {w.want}
               </span>
             ) : null}
             {w.rhymeLocked && (
@@ -502,7 +504,7 @@ const Cell = memo(function Cell(p: CellProps) {
 /** 拖进别的格子的浅底最后一段：把手要知道是哪个字（只用到起点和 id） */
 function holdWord(t: TintView): WordView {
   const abs = t.fromBar * TICKS_PER_BAR + t.fromBeat * TICKS_PER_BEAT + t.fromOff;
-  return { id: t.wordId, abs, tick: abs % TICKS_PER_BAR, off: t.fromOff, len: t.e - abs, box: 0, text: '', final: null, hue: t.hue, locked: false, rhymeLocked: false, mismatch: null };
+  return { id: t.wordId, abs, tick: abs % TICKS_PER_BAR, off: t.fromOff, len: t.e - abs, box: 0, text: '', final: null, want: null, hue: t.hue, locked: false, rhymeLocked: false, mismatch: null };
 }
 
 interface RowProps {
@@ -529,17 +531,19 @@ const Row = memo(function Row({ row, state, sizing, nowAbs, nowKey, selected, ro
     { label: '清空这一小节', onClick: () => store.clearBarFlow(row.global) },
     { label: '删除这一小节', danger: true, onClick: () => store.deleteBar(row.global) },
   ];
+  const mode = rhymeMatchOf(state.doc);
   const lab: React.ReactNode[] = row.tags.map((r) => (
     <span key={r.id} className="rtag" style={{ '--h': r.hue } as Css}>
       <i></i>
-      {r.finals.join('·')}
+      {r.finals.map((f) => wantLabel(f, mode)).join('·')}
     </span>
   ));
   const miss = row.cells.flatMap((c) => c.words.filter((w) => w.mismatch));
   if (miss.length) {
+    const m = miss[0].mismatch!;
     lab.unshift(
       <span key="miss" className="miss-tag" data-role="mismatch">
-        「{miss[0].text}」{miss[0].mismatch!.got} ≠ {miss[0].mismatch!.want}
+        「{miss[0].text}」{mode === 'strict' ? `${m.got} ≠ ${m.want}` : `${m.got} ≠ ${zheName(m.want) ?? m.want}`}
       </span>,
     );
   }

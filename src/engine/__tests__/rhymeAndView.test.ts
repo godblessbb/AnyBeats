@@ -50,7 +50,7 @@ describe('同韵候选（本地韵表）', () => {
 
 describe('按颜色规则找候选（ruleCandidates）', () => {
   it('双押 u · ou：只给两字词，每个字的韵母都严格对得上', () => {
-    const words = ruleCandidates(['u', 'ou']);
+    const words = ruleCandidates(['u', 'ou'], 'strict');
     expect(words.length).toBeGreaterThan(0);
     expect(words.length).toBeLessThanOrEqual(9);
     for (const w of words) {
@@ -62,7 +62,7 @@ describe('按颜色规则找候选（ruleCandidates）', () => {
   });
 
   it('单押 ang：给单字，严格按字面（不混进 iang）', () => {
-    const words = ruleCandidates(['ang'], 20);
+    const words = ruleCandidates(['ang'], 'strict', 20);
     expect(words.length).toBeGreaterThan(0);
     expect(words.every((w) => Array.from(w).length === 1)).toBe(true);
     expect(words).toContain('方');
@@ -71,13 +71,13 @@ describe('按颜色规则找候选（ruleCandidates）', () => {
   });
 
   it('zhi / chi / shi 的韵母字面是 i；排除表；韵母没填全时不给候选', () => {
-    const words = ruleCandidates(['i', 'ang'], 30);
+    const words = ruleCandidates(['i', 'ang'], 'strict', 30);
     expect(words.length).toBeGreaterThan(0);
     expect(words.every((w) => Array.from(w).map((c) => finalOfChar(c)).join(' ') === 'i ang')).toBe(true);
-    const ex = ruleCandidates(['i', 'ang'], 9, [words[0]]);
+    const ex = ruleCandidates(['i', 'ang'], 'strict', 9, [words[0]]);
     expect(ex).not.toContain(words[0]);
-    expect(ruleCandidates(['', 'ou'])).toEqual([]);
-    expect(ruleCandidates([])).toEqual([]);
+    expect(ruleCandidates(['', 'ou'], 'strict')).toEqual([]);
+    expect(ruleCandidates([], 'strict')).toEqual([]);
   });
 });
 
@@ -178,11 +178,19 @@ describe('表格视图（sheetView，夜车）', () => {
     expect(c.words.every((w) => w.mismatch === null && !w.locked && !w.rhymeLocked)).toBe(true);
   });
 
-  it('写了字但对不上本格颜色：记一处，字上带 got / want', () => {
+  it('写了字但对不上本格颜色：记一处，字上带 got / want（严格档；十三辙下同辙不算）', () => {
     const fang = findWord(doc.grid, wordId(1, 180))!;
-    const v = sheetView({ ...doc, grid: setWordText(doc.grid, fang.word.id, '想') });
+    const v = sheetView({ ...doc, rhymeMatch: 'strict', grid: setWordText(doc.grid, fang.word.id, '想') });
     expect(v.mismatchCount).toBe(1);
     expect(v.rows[1].cells[3].words[3].mismatch).toEqual({ got: 'iang', want: 'ang' });
+    expect(v.rows[1].cells[3].words[3].want).toBe('ang');
+    const t = sheetView({ ...doc, rhymeMatch: 'thirteen', grid: setWordText(doc.grid, fang.word.id, '想') });
+    expect(t.mode).toBe('thirteen');
+    expect(t.mismatchCount).toBe(0);
+    // 没字段（旧作品）= 严格
+    const { rhymeMatch: _drop, ...legacy } = { ...doc, grid: setWordText(doc.grid, fang.word.id, '想') };
+    void _drop;
+    expect(sheetView(legacy).mismatchCount).toBe(1);
   });
 
   it('锁定：整行锁 / 单格锁（格角小锁）/ 锁韵脚位置（字角小锁）', () => {

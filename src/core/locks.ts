@@ -6,7 +6,7 @@
  */
 
 import { allBars, allWords, cellKey, TICKS_PER_BAR, TICKS_PER_BEAT, type Grid } from './grid';
-import { rhymeSlots, type Paint, type RhymeRule } from './rhymeRules';
+import { rhymeMatchOf, rhymeSlots, type Paint, type RhymeMatchMode, type RhymeRule } from './rhymeRules';
 
 export interface Locks {
   /** 整行锁：小节 id */
@@ -68,6 +68,8 @@ export interface LockContext {
   locks: Locks;
   rules: RhymeRule[];
   paint: Paint;
+  /** 作品的判押韵档（没有 = 旧作品 = 严格）；韵脚位置和档无关，这里只是原样传给 rhymeSlots */
+  rhymeMatch?: RhymeMatchMode;
 }
 
 /** 被锁住的字的起点（全曲绝对 tick）：所在格锁了，或者锁了韵脚位置且它是韵脚字 */
@@ -76,7 +78,7 @@ export function lockedWordTicks(grid: Grid, ctx: LockContext): Set<number> {
   for (const w of allWords(grid)) {
     if (isCellLocked(ctx.locks, w.barId, Math.floor(w.word.tick / TICKS_PER_BEAT))) out.add(w.abs);
   }
-  if (ctx.locks.rhyme) for (const s of rhymeSlots(grid, ctx.rules, ctx.paint)) out.add(s.abs);
+  if (ctx.locks.rhyme) for (const s of rhymeSlots(grid, ctx.rules, ctx.paint, rhymeMatchOf(ctx))) out.add(s.abs);
   return out;
 }
 

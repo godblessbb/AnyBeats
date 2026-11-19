@@ -138,6 +138,7 @@ export function nightDriveProject(now: number): Project {
     rules: NIGHT_RULES.map((r) => ({ ...r, finals: [...r.finals] })),
     paint,
     locks: emptyLocks(),
+    rhymeMatch: 'thirteen',
   });
 }
 
@@ -178,7 +179,7 @@ export const STREET_RHYTHM: AiLyricData = {
 export function streetRhythmProject(now: number): Project {
   const { grid, bpm } = importAiLyrics(STREET_RHYTHM, { sectionKind: 'verse' });
   const section = { ...grid.sections[0], label: 'Verse 1' };
-  return createProject({ name: '街头节奏', bpm: bpm ?? 90, createdAt: now, updatedAt: now, grid: { sections: [section] } });
+  return createProject({ name: '街头节奏', bpm: bpm ?? 90, createdAt: now, updatedAt: now, grid: { sections: [section] }, rhymeMatch: 'thirteen' });
 }
 
 export const EXAMPLES = [
@@ -190,6 +191,6 @@ export type ExampleKey = (typeof EXAMPLES)[number]['key'];
 
 /** 空工程：一个 8 小节的 Verse 1 */
 export function emptyProject(name: string, now: number, bpm = 90): Project {
-  // 新作品每个 1/4 拍一个空方格（v3.2）：第 1 步一打开就看得出每拍唱一个字
-  return createProject({ name, bpm, createdAt: now, updatedAt: now, grid: resetFlow({ sections: [createSection('verse', 8, 'Verse 1')] }) });
+  // 新作品每个 1/4 拍一个空方格（v3.2）：第 1 步一打开就看得出每拍唱一个字；判押韵默认十三辙（v3.4）
+  return createProject({ name, bpm, createdAt: now, updatedAt: now, grid: resetFlow({ sections: [createSection('verse', 8, 'Verse 1')] }), rhymeMatch: 'thirteen' });
 }

@@ -54,6 +54,11 @@ import {
   mismatches,
   paintCells,
   parseCellKey,
+  previewRhymeMatch,
+  RHYME_MATCH_NAMES,
+  rhymeMatchOf,
+  switchRhymeMatch,
+  zheName,
   placeWord,
   planBeatSwap,
   relabelSections,
@@ -97,6 +102,9 @@ import {
   type PolishOptions,
   type Precision,
   type Project,
+  type RecolorInfo,
+  type RhymeMatchMode,
+  type RhymeMatchPreview,
   type SectionKind,
   type TimerApi,
 } from '../core';
@@ -186,7 +194,7 @@ const browserTimers: TimerApi = {
 };
 
 function docOf(p: Project): Doc {
-  return { bpm: p.bpm, offsetMs: p.offsetMs, beat: p.beat, grid: p.grid, rules: p.rules, paint: p.paint, locks: p.locks };
+  return { bpm: p.bpm, offsetMs: p.offsetMs, beat: p.beat, grid: p.grid, rules: p.rules, paint: p.paint, locks: p.locks, ...(p.rhymeMatch ? { rhymeMatch: p.rhymeMatch } : {}) };
 }
 
 const sameDoc = (a: Doc, b: Doc) => docCodec.split(a).join('\u0000') === docCodec.split(b).join('\u0000');
@@ -249,6 +257,11 @@ export class EditorStore {
 
   get grid(): Grid {
     return this.state.doc.grid;
+  }
+
+  /** 作品的判押韵档（没有字段的旧作品 = 严格） */
+  get rhymeMatch(): RhymeMatchMode {
+    return rhymeMatchOf(this.state.doc);
   }
 
   get project(): Project {
@@ -745,7 +758,7 @@ export class EditorStore {
 
   /** 候选词填进一格的韵脚位置（最后 n 个字） */
   fillRhyme(key: string, word: string): void {
-    const slots = rhymeSlots(this.grid, this.doc.rules, this.doc.paint).filter((s) => s.key === key);
+    const slots = rhymeSlots(this.grid, this.doc.rules, this.doc.paint, this.rhymeMatch).filter((s) => s.key === key);
     if (!slots.length) {
       this.notify('先选一个涂了色、铺了字的格子');
       return;
@@ -894,15 +907,31 @@ export class EditorStore {
 
   private mergedNotice(merged: MergeInfo[], before: Doc): string | null {
     if (!merged.length) return null;
+    const rule = (id: string) => before.rules.find((x) => x.id === id);
     const name = (id: string) => {
-      const r = before.rules.find((x) => x.id === id);
+      const r = rule(id);
       return r ? ruleName(r) : '另一种颜色';
     };
+    if (rhymeMatchOf(before) === 'thirteen') {
+      // 十三辙：「绿色（ian）和蓝色（an）都是言前辙，已合并成蓝色（12 格从绿变蓝），可以撤销」
+      return (
+        merged
+          .map((m) => {
+            const a = rule(m.removed);
+            const b = rule(m.kept);
+            const zhe = b ? b.finals.map((f) => zheName(f) ?? f).join(' · ') : '同一个韵';
+            const cells = Object.values(before.paint).filter((v) => v === m.removed).length;
+            const recolor = a && b && a.hue !== b.hue && cells ? `（${cells} 格从${name(m.removed)}变${name(m.kept)}）` : '';
+            return `${name(m.removed)}（${a?.finals.join(' · ') ?? ''}）和${name(m.kept)}（${b?.finals.join(' · ') ?? ''}）都是${zhe}，已合并成${name(m.kept)}${recolor}`;
+          })
+          .join('；') + '，可以撤销'
+      );
+    }
     return merged.map((m) => `${name(m.removed)}和${name(m.kept)}押的是同一个韵，已合并成${name(m.kept)}`).join('；') + '（可以撤销）';
   }
 
   addRule(): void {
-    const r = addRule(this.doc);
+    const r = addRule(this.doc, this.rhymeMatch);
     if (!r.rule) {
       this.notify('最多 8 种颜色');
       return;
@@ -913,7 +942,7 @@ export class EditorStore {
 
   private changeRule(id: string, patch: { count?: number; finals?: string[] }, label: string): void {
     const before = this.doc;
-    const r = updateRule(before, id, patch);
+    const r = updateRule(before, id, patch, this.rhymeMatch);
     const notice = this.mergedNotice(r.merged, before);
     const kept = r.merged.find((m) => m.removed === id)?.kept;
     const merge = notice ? `，合并进${ruleName(before.rules.find((x) => x.id === kept) ?? { hue: 0 })}` : '';
@@ -933,6 +962,48 @@ export class EditorStore {
     const finals = rule.finals.map((f, i) => (i === index ? value : f));
     if (finals.join('|') === rule.finals.join('|')) return;
     this.changeRule(id, { finals }, `涂色 ${ruleName(rule)}韵母改成 ${finals.join(' · ')}`);
+  }
+
+  // ---------- 判押韵的档（DESIGN_v34 §4.6 / §4.7） ----------
+
+  /** 旧作品（没有 rhymeMatch 字段）而且有颜色规则：顶上出迁移横幅 */
+  needsRhymeMigration(): boolean {
+    return this.doc.rhymeMatch === undefined && this.doc.rules.length > 0;
+  }
+
+  /** 改成另一档会怎样（横幅 / 右栏上的数字）：「不押」少几处、哪些颜色合并、哪些格子变色 */
+  rhymeMatchPreview(to: RhymeMatchMode = 'thirteen'): RhymeMatchPreview {
+    return previewRhymeMatch(this.grid, this.doc, this.rhymeMatch, to);
+  }
+
+  /** 改判押韵的档：换档 + 按新档合并同韵颜色，算一步（撤销一次回到原样） */
+  setRhymeMatch(mode: RhymeMatchMode): boolean {
+    const before = this.doc;
+    if (before.rhymeMatch === mode) return false;
+    const preview = previewRhymeMatch(this.grid, before, rhymeMatchOf(before), mode);
+    const r = switchRhymeMatch(before, mode);
+    const active = this.state.activeRule;
+    const kept = active ? r.merged.find((m) => m.removed === active)?.kept : undefined;
+    const merge = r.merged.length ? `，${preview.rulesBefore} 条规则合并成 ${preview.rulesAfter} 种颜色` : '';
+    const ok = this.exec(`判押韵 改成${RHYME_MATCH_NAMES[mode]}${merge}`, 'paint', (d) => ({ ...d, rules: r.rules, paint: r.paint, rhymeMatch: mode }), kept ? { activeRule: kept } : {});
+    if (ok) this.notify(this.rhymeMatchNotice(mode, preview, before));
+    return ok;
+  }
+
+  /** 迁移横幅点「先不改」：在作品里写下 strict（一步），以后不再问；右栏随时能切 */
+  dismissRhymeMigration(): boolean {
+    if (this.doc.rhymeMatch !== undefined) return false;
+    const ok = this.exec('判押韵 先不改（保持严格韵母）', 'paint', (d) => ({ ...d, rhymeMatch: 'strict' }));
+    if (ok) this.notify('保持严格韵母判押韵，以后不再问；右栏「判押韵」随时能改');
+    return ok;
+  }
+
+  private rhymeMatchNotice(mode: RhymeMatchMode, p: RhymeMatchPreview, before: Doc): string {
+    const parts = [`改成${RHYME_MATCH_NAMES[mode]}判押韵`];
+    if (p.missBefore !== p.missAfter) parts.push(`「不押」${p.missBefore} → ${p.missAfter} 处`);
+    if (p.merged.length) parts.push(`${p.rulesBefore} 条规则合并成 ${p.rulesAfter} 种颜色`);
+    if (p.merged.length) parts.push(p.recolorCells ? recolorText(p.merged, before) : '格子颜色都不变');
+    return parts.join('，') + '（可以撤销）';
   }
 
   removeRule(id: string): void {
@@ -1216,12 +1287,35 @@ export class EditorStore {
   }
 
   mismatchCount(): number {
-    return mismatches(this.grid, this.doc.rules, this.doc.paint).length;
+    return mismatches(this.grid, this.doc.rules, this.doc.paint, this.rhymeMatch).length;
   }
 
   canPaintKey(key: string): boolean {
     return canPaint(this.grid, key).ok;
   }
+}
+
+/** 不同色相合并会变色时逐条写出「绿色并进蓝色：12 格从绿色变蓝色」 */
+export function recolorText(merged: RecolorInfo[], before: Pick<Doc, 'rules'>): string {
+  const name = (id: string) => {
+    const r = before.rules.find((x) => x.id === id);
+    return r ? ruleName(r) : '另一种颜色';
+  };
+  return merged
+    .filter((m) => m.recolor && m.cells)
+    .map((m) => `${name(m.removed)}并进${name(m.kept)}：${m.cells} 格从${name(m.removed)}变${name(m.kept)}`)
+    .join('；');
+}
+
+/** 迁移横幅上那几个数字的长句：「全曲 56 处『不押』会消失，格子颜色不变」 */
+export function migrationSummary(p: RhymeMatchPreview, rules: Doc['rules']): string {
+  const parts: string[] = [];
+  if (p.missBefore > p.missAfter) parts.push(p.missAfter === 0 ? `全曲 ${p.missBefore} 处「不押」会消失` : `全曲「不押」从 ${p.missBefore} 处变成 ${p.missAfter} 处`);
+  if (p.merged.length) parts.push(`${p.rulesBefore} 条规则里同辙的会合并成 ${p.rulesAfter} 种颜色`);
+  if (p.recolorCells) parts.push(recolorText(p.merged, { rules }));
+  else if (parts.length) parts.push(p.merged.length ? '格子颜色都不变' : '格子颜色不变');
+  if (!parts.length) parts.push('现在的「不押」和颜色都不变，以后 an / ian / uan / üan 这类同辙的都算押上');
+  return parts.join('，');
 }
 
 /** abs 这里是空白（没有字在发声）时，到下一个字 / 这一拍末尾有多长；不是空白返回 0 */

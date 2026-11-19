@@ -349,9 +349,12 @@ describe('EditorStore：填字', () => {
     expect(kinds(store)).toEqual(['fill']);
   });
 
+  // v3.4：新建作品 / 夜车默认十三辙，严格比对要先在作品里切到「严格韵母」（DESIGN_v34 §4.7）
   it('严格按字面比对韵母：规则 ang，写「想」(iang) 算对不上，写「方」才对', () => {
     const { store } = setup();
     store.newProject();
+    expect(store.rhymeMatch).toBe('thirteen');
+    store.setRhymeMatch('strict');
     store.flowClick(0);
     store.addRule();
     const rule = store.getState().activeRule!;
@@ -366,10 +369,15 @@ describe('EditorStore：填字', () => {
     expect(store.mismatchCount()).toBe(0);
   });
 
-  it('夜车里把韵脚「方」改成「想」：对不上的数量加一', () => {
+  it('夜车（严格档）里把韵脚「方」改成「想」：对不上的数量加一；十三辙下 iang 押 ang 不算对不上', () => {
     const { store } = setup();
+    store.setRhymeMatch('strict');
     expect(store.mismatchCount()).toBe(0);
     store.commitText(at(1, 180), '想');
+    expect(store.mismatchCount()).toBe(1);
+    store.setRhymeMatch('thirteen');
+    expect(store.mismatchCount()).toBe(0);
+    store.commitText(at(1, 180), '风');
     expect(store.mismatchCount()).toBe(1);
   });
 });

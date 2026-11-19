@@ -16,7 +16,6 @@ import {
   normalizeFinal,
   paintCells,
   prunePaint,
-  RHYME_MATCH_MODE,
   rhymeSlots,
   rowKeys,
   RULE_HUES,
@@ -50,7 +49,7 @@ const rule = (id: string, count: number, finals: string[], rules: RhymeRule[] = 
 describe('押韵位置：格内最后 n 个字', () => {
   it('只数字不数拖音：「路口」口拖进下一小节仍是双押 u / ou', () => {
     const r = rule('R', 2, ['u', 'ou']);
-    const slots = rhymeSlots(g, [r], { [cellKey(b0, 3)]: r.id });
+    const slots = rhymeSlots(g, [r], { [cellKey(b0, 3)]: r.id }, 'strict');
     expect(slots.map((s) => [s.word.text, s.abs, s.want, s.got, s.ok])).toEqual([
       ['路', 144, 'u', 'u', true],
       ['口', 168, 'ou', 'ou', true],
@@ -59,7 +58,7 @@ describe('押韵位置：格内最后 n 个字', () => {
 
   it('格内字多于押数时只看最后几个', () => {
     const r = rule('R', 2, ['ou', 'ang']);
-    const slots = rhymeSlots(g, [r], { [cellKey(b1, 1)]: r.id });
+    const slots = rhymeSlots(g, [r], { [cellKey(b1, 1)]: r.id }, 'strict');
     expect(slots.map((s) => [s.word.text, s.want, s.ok])).toEqual([
       ['走', 'ou', true],
       ['场', 'ang', true],
@@ -68,7 +67,7 @@ describe('押韵位置：格内最后 n 个字', () => {
 
   it('格内字少于押数时对齐靠后的韵母', () => {
     const r = rule('R', 2, ['u', 'ai']);
-    const slots = rhymeSlots(g, [r], { [cellKey(b1, 2)]: r.id });
+    const slots = rhymeSlots(g, [r], { [cellKey(b1, 2)]: r.id }, 'strict');
     expect(slots.map((s) => [s.word.text, s.abs, s.want])).toEqual([['在', 192 + 96, 'ai']]);
   });
 });
@@ -124,18 +123,15 @@ describe('涂色', () => {
 });
 
 describe('韵母比对', () => {
-  it('默认严格按字面比对', () => {
-    expect(RHYME_MATCH_MODE).toBe('strict');
-  });
-
-  it('finalsMatch：严格时 iang ≠ ang，宽松按十三辙', () => {
-    expect(finalsMatch('iang', 'ang')).toBe(false);
+  // v3.4：判押韵的档存在作品里，函数必须显式传档（原来的 RHYME_MATCH_MODE 常量删掉了；原「默认严格」断言改到 project / store 测试：没字段的作品 = strict）
+  it('finalsMatch：严格时 iang ≠ ang，十三辙同辙算押', () => {
     expect(finalsMatch('iang', 'ang', 'strict')).toBe(false);
-    expect(finalsMatch('iang', 'ang', 'loose')).toBe(true);
-    expect(finalsMatch('ang', 'ang')).toBe(true);
-    expect(finalsMatch(' ANG3 ', 'ang')).toBe(true);
-    expect(finalsMatch('ou', 'u', 'loose')).toBe(false);
-    expect(finalsMatch('', '')).toBe(false);
+    expect(finalsMatch('iang', 'ang', 'thirteen')).toBe(true);
+    expect(finalsMatch('ang', 'ang', 'strict')).toBe(true);
+    expect(finalsMatch(' ANG3 ', 'ang', 'strict')).toBe(true);
+    expect(finalsMatch('ou', 'u', 'thirteen')).toBe(false);
+    expect(finalsMatch('', '', 'strict')).toBe(false);
+    expect(finalsMatch('', '', 'thirteen')).toBe(false);
   });
 
   it('finalOfChar 取字面韵母，不是汉字返回 null', () => {
@@ -155,10 +151,10 @@ describe('韵母比对', () => {
     const a = rule('A', 1, ['ang']);
     // 第 0 小节第 0 拍末字「想」(iang)；第 1 拍末字是空字；第 1 小节第 1 拍末字「场」(ang)
     const paint = { [cellKey(b0, 0)]: a.id, [cellKey(b0, 1)]: a.id, [cellKey(b1, 1)]: a.id };
-    const m = mismatches(g, [a], paint);
+    const m = mismatches(g, [a], paint, 'strict');
     expect(m.map((s) => [s.key, s.word.text, s.got, s.want])).toEqual([[cellKey(b0, 0), '想', 'iang', 'ang']]);
-    expect(rhymeSlots(g, [a], paint).find((s) => s.key === cellKey(b0, 1))?.ok).toBeNull();
-    expect(mismatches(g, [a], paint, 'loose')).toEqual([]);
+    expect(rhymeSlots(g, [a], paint, 'strict').find((s) => s.key === cellKey(b0, 1))?.ok).toBeNull();
+    expect(mismatches(g, [a], paint, 'thirteen')).toEqual([]);
   });
 });
 
@@ -168,7 +164,7 @@ describe('规则：自动合并', () => {
       rules: [rule('A', 1, ['ang']), rule('B', 2, ['u', 'ou']), rule('C', 1, ['ang'])],
       paint: { k1: 'A', k2: 'C', k3: 'B', k4: 'C' },
     };
-    const m = mergeSameRules(state);
+    const m = mergeSameRules(state, 'strict');
     expect(m.rules.map((r) => r.id)).toEqual(['A', 'B']);
     expect(m.paint).toEqual({ k1: 'A', k2: 'A', k3: 'B', k4: 'A' });
     expect(m.merged).toEqual([{ kept: 'A', removed: 'C' }]);
@@ -177,30 +173,30 @@ describe('规则：自动合并', () => {
   it('updateRule 改成和别的规则同韵：留靠前的那条（不管改的是哪条）', () => {
     const state: RulesState = { rules: [rule('A', 1, ['an']), rule('B', 1, ['ang'])], paint: { k1: 'A', k2: 'B' } };
 
-    const u1 = updateRule(state, 'A', { finals: ['ang'] });
+    const u1 = updateRule(state, 'A', { finals: ['ang'] }, 'strict');
     expect(u1.rules.map((r) => [r.id, r.finals])).toEqual([['A', ['ang']]]);
     expect(u1.paint).toEqual({ k1: 'A', k2: 'A' });
     expect(u1.merged).toEqual([{ kept: 'A', removed: 'B' }]);
 
-    const u2 = updateRule(state, 'B', { finals: ['an'] });
+    const u2 = updateRule(state, 'B', { finals: ['an'] }, 'strict');
     expect(u2.rules.map((r) => r.id)).toEqual(['A']);
     expect(u2.paint).toEqual({ k1: 'A', k2: 'A' });
   });
 
   it('韵母没填全的规则不合并', () => {
     let state: RulesState = { rules: [], paint: {} };
-    state = addRule(state);
-    state = addRule(state);
+    state = addRule(state, 'strict');
+    state = addRule(state, 'strict');
     expect(state.rules).toHaveLength(2);
-    state = addRule(state, { count: 2, finals: ['', 'ou'] });
-    state = addRule(state, { count: 2, finals: ['', 'ou'] });
+    state = addRule(state, 'strict', { count: 2, finals: ['', 'ou'] });
+    state = addRule(state, 'strict', { count: 2, finals: ['', 'ou'] });
     expect(state.rules).toHaveLength(4);
-    expect(sameRhyme(state.rules[2], state.rules[3])).toBe(false);
+    expect(sameRhyme(state.rules[2], state.rules[3], 'strict')).toBe(false);
   });
 
   it('addRule 和已有规则同韵时并进已有规则，返回的 rule 为 null', () => {
-    const first = addRule({ rules: [], paint: {} }, { count: 2, finals: ['u', 'ou'] });
-    const second = addRule(first, { count: 2, finals: ['U', 'ou4'] });
+    const first = addRule({ rules: [], paint: {} }, 'strict', { count: 2, finals: ['u', 'ou'] });
+    const second = addRule(first, 'strict', { count: 2, finals: ['U', 'ou4'] });
     expect(second.rule).toBeNull();
     expect(second.rules.map((r) => r.id)).toEqual([first.rule!.id]);
     expect(second.merged).toHaveLength(1);
@@ -212,13 +208,13 @@ describe('规则：色相与押数', () => {
   it('addRule 依次用 RULE_HUES 的色相，用完返回 null；删掉的色相可再用', () => {
     let state: RulesState = { rules: [], paint: {} };
     for (let i = 0; i < MAX_RULES; i++) {
-      const r = addRule(state);
+      const r = addRule(state, 'strict');
       expect(r.rule?.hue).toBe(RULE_HUES[i]);
       state = r;
     }
-    expect(addRule(state).rule).toBeNull();
+    expect(addRule(state, 'strict').rule).toBeNull();
     const freed = deleteRule(state, state.rules[2].id);
-    expect(addRule(freed).rule?.hue).toBe(RULE_HUES[2]);
+    expect(addRule(freed, 'strict').rule?.hue).toBe(RULE_HUES[2]);
   });
 
   it('RULE_HUES 互不相同，都不在 250–310° 紫区', () => {
@@ -233,9 +229,9 @@ describe('规则：色相与押数', () => {
     expect(createRule([], { count: 3, finals: ['ou'] })!.finals).toEqual(['', '', 'ou']);
 
     const state: RulesState = { rules: [rule('A', 2, ['u', 'ou'])], paint: {} };
-    expect(updateRule(state, 'A', { count: 1 }).rules[0]).toMatchObject({ count: 1, finals: ['ou'] });
-    expect(updateRule(state, 'A', { count: 4 }).rules[0]).toMatchObject({ count: 4, finals: ['', '', 'u', 'ou'] });
-    expect(updateRule(state, 'A', { count: 7 }).rules[0].count).toBe(4);
+    expect(updateRule(state, 'A', { count: 1 }, 'strict').rules[0]).toMatchObject({ count: 1, finals: ['ou'] });
+    expect(updateRule(state, 'A', { count: 4 }, 'strict').rules[0]).toMatchObject({ count: 4, finals: ['', '', 'u', 'ou'] });
+    expect(updateRule(state, 'A', { count: 7 }, 'strict').rules[0].count).toBe(4);
   });
 });
 
